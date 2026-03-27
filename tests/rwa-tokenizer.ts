@@ -180,8 +180,8 @@ describe("rwa_tokenizer", () => {
   // Создаём PDA, который Token-2022 считывает перед каждым transfer,
   // чтобы знать, какие дополнительные аккаунты передать в наш hook.
   //
-  // В нашем случае единственный extra account — ComplianceRecord PDA
-  // отправителя, динамически разрешённый через seeds.
+  // В нашем случае extra accounts включают AssetRecord PDA и два
+  // ComplianceRecord PDA (sender/receiver), динамически разрешённые через seeds.
   //
 
   it("Step 2: Initialize ExtraAccountMetaList", async () => {
@@ -219,6 +219,7 @@ describe("rwa_tokenizer", () => {
   it("Step 3: Initialize RWA Asset Record", async () => {
     // Пример: токенизация квартиры в Алматы
     const assetName = "Apartment #42, Almaty";
+    const plannedSupply = new anchor.BN(1_000_000);
     const documentUri = "ipfs://QmExampleHash123456789abcdef"; // IPFS CID
     // SHA256 хэш пакета документов (в реальности — hash от PDF/zip)
     const documentHash = Array.from(
@@ -232,7 +233,7 @@ describe("rwa_tokenizer", () => {
       .initializeAsset(
         assetName,
         { realEstate: {} }, // AssetType::RealEstate
-        new anchor.BN(1_000_000), // 1M долей
+        plannedSupply, // Planned 1M долей
         new anchor.BN(150_000_00), // $150,000.00 (в центах)
         documentUri,
         documentHash
@@ -251,6 +252,7 @@ describe("rwa_tokenizer", () => {
     const asset = await program.account.assetRecord.fetch(assetRecordPDA);
     expect(asset.name).to.equal(assetName);
     expect(asset.assetType).to.deep.equal({ realEstate: {} });
+    expect(asset.plannedSupply.toString()).to.equal(plannedSupply.toString());
     expect(asset.isActive).to.be.true;
     console.log(`  ✓ Asset record verified on-chain`);
   });
@@ -317,9 +319,10 @@ describe("rwa_tokenizer", () => {
   it("Step 5a: Approve sender wallet for compliance", async () => {
     const tx = await program.methods
       .approveWallet({ standard: {} }) // ComplianceLevel::Standard
-      .accounts({
+      .accountsPartial({
         authority: wallet.publicKey,
         mint: mint.publicKey,
+        assetRecord: assetRecordPDA,
         wallet: wallet.publicKey,
       })
       .rpc();
@@ -340,9 +343,10 @@ describe("rwa_tokenizer", () => {
   it("Step 5b: Approve recipient wallet for compliance", async () => {
     const tx = await program.methods
       .approveWallet({ standard: {} }) // ComplianceLevel::Standard
-      .accounts({
+      .accountsPartial({
         authority: wallet.publicKey,
         mint: mint.publicKey,
+        assetRecord: assetRecordPDA,
         wallet: recipient.publicKey,
       })
       .rpc();
@@ -418,9 +422,10 @@ describe("rwa_tokenizer", () => {
     // Отзываем compliance-статус отправителя
     const revokeTx = await program.methods
       .revokeWallet()
-      .accounts({
+      .accountsPartial({
         authority: wallet.publicKey,
         complianceRecord: senderCompliancePDA,
+        assetRecord: assetRecordPDA,
       })
       .rpc();
 

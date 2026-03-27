@@ -136,6 +136,7 @@ async function main() {
   );
 
   const assetName = "Apartment #42, Almaty";
+  const plannedSupply = new anchor.BN(1_000_000);
   const documentUri = "ipfs://QmExampleCID123456789";
   const documentHash = Array.from(Buffer.alloc(32, 0xab)); // Placeholder hash
 
@@ -143,7 +144,7 @@ async function main() {
     .initializeAsset(
       assetName,
       { realEstate: {} },
-      new anchor.BN(1_000_000),
+      plannedSupply,
       new anchor.BN(150_000_00),
       documentUri,
       documentHash
@@ -183,6 +184,7 @@ async function main() {
     programId: program.programId.toBase58(),
     extraAccountMetaList: extraAccountMetaListPDA.toBase58(),
     assetRecord: assetRecordPDA.toBase58(),
+    plannedSupply: plannedSupply.toString(),
     decimals,
     network: provider.connection.rpcEndpoint,
     deployedAt: new Date().toISOString(),

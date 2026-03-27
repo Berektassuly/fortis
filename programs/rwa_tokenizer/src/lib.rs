@@ -33,6 +33,7 @@
 
 use anchor_lang::{
     prelude::*,
+    solana_program::program_option::COption,
     system_program::{create_account, CreateAccount},
 };
 use anchor_spl::token_interface::{Mint, TokenAccount};
@@ -41,13 +42,9 @@ use anchor_spl::token_interface::{Mint, TokenAccount};
 use anchor_spl::token_2022::spl_token_2022;
 use anchor_spl::token_2022::spl_token_2022::extension::BaseStateWithExtensions;
 use spl_tlv_account_resolution::{
-    account::ExtraAccountMeta,
-    seeds::Seed,
-    state::ExtraAccountMetaList,
+    account::ExtraAccountMeta, seeds::Seed, state::ExtraAccountMetaList,
 };
-use spl_transfer_hook_interface::instruction::{
-    ExecuteInstruction, TransferHookInstruction,
-};
+use spl_transfer_hook_interface::instruction::{ExecuteInstruction, TransferHookInstruction};
 
 declare_id!("8oiLUNoBU3CrpuR8HhRTCawWfDog8WbYkcX1PkqmGvpk");
 
@@ -83,14 +80,14 @@ pub mod rwa_tokenizer {
         ctx: Context<InitializeAsset>,
         name: String,
         asset_type: AssetType,
-        total_supply: u64,
+        planned_supply: u64,
         valuation_usd: u64,
         document_uri: String,
         document_hash: [u8; 32],
     ) -> Result<()> {
         require!(name.len() <= MAX_NAME_LEN, RwaError::NameTooLong);
         require!(document_uri.len() <= MAX_URI_LEN, RwaError::UriTooLong);
-        require!(total_supply > 0, RwaError::InvalidSupply);
+        require!(planned_supply > 0, RwaError::InvalidSupply);
         require!(valuation_usd > 0, RwaError::InvalidValuation);
 
         let asset = &mut ctx.accounts.asset_record;
@@ -98,7 +95,7 @@ pub mod rwa_tokenizer {
         asset.mint = ctx.accounts.mint.key();
         asset.name = name;
         asset.asset_type = asset_type;
-        asset.total_supply = total_supply;
+        asset.planned_supply = planned_supply;
         asset.valuation_usd = valuation_usd;
         asset.document_uri = document_uri;
         asset.document_hash = document_hash;
@@ -122,10 +119,7 @@ pub mod rwa_tokenizer {
     // Только authority может обновить оценку. В продакшене это может быть
     // oracle (Switchboard/Pyth) или off-chain attestation service.
     //
-    pub fn update_asset_valuation(
-        ctx: Context<UpdateAsset>,
-        new_valuation_usd: u64,
-    ) -> Result<()> {
+    pub fn update_asset_valuation(ctx: Context<UpdateAsset>, new_valuation_usd: u64) -> Result<()> {
         require!(new_valuation_usd > 0, RwaError::InvalidValuation);
 
         let asset = &mut ctx.accounts.asset_record;
@@ -158,7 +152,7 @@ pub mod rwa_tokenizer {
         let record = &mut ctx.accounts.compliance_record;
         record.mint = ctx.accounts.mint.key();
         record.wallet = ctx.accounts.wallet.key();
-        record.authority = ctx.accounts.authority.key();
+        record.authority = ctx.accounts.asset_record.authority;
         record.status = ComplianceStatus::Approved;
         record.level = compliance_level;
         record.approved_at = Clock::get()?.unix_timestamp;
@@ -205,9 +199,11 @@ pub mod rwa_tokenizer {
     // расчёта размера через ExtraAccountMetaList::size_of().
     //
     // ExtraAccountMeta конфигурация:
-    //   - index 5: ComplianceRecord PDA отправителя (sender)
+    //   - index 5: AssetRecord PDA
+    //     Seeds: ["asset", AccountKey(1)=mint]
+    //   - index 6: ComplianceRecord PDA отправителя (sender)
     //     Seeds: ["compliance", AccountKey(1)=mint, AccountKey(3)=owner]
-    //   - index 6: ComplianceRecord PDA получателя (receiver)
+    //   - index 7: ComplianceRecord PDA получателя (receiver)
     //     Seeds: ["compliance", AccountKey(1)=mint, AccountData(2, 32, 32)=dest owner]
     //
     //   Стандартные индексы Transfer Hook execute:
@@ -232,6 +228,21 @@ pub mod rwa_tokenizer {
         let account_metas = vec![
             // ---------------------------------------------------------------
             // Extra Account #0 (index 5 в общем списке):
+            // AssetRecord PDA.
+            // ---------------------------------------------------------------
+            ExtraAccountMeta::new_with_seeds(
+                &[
+                    Seed::Literal {
+                        bytes: b"asset".to_vec(),
+                    },
+                    Seed::AccountKey { index: 1 }, // mint pubkey
+                ],
+                false, // is_signer
+                false, // is_writable (только чтение)
+            )
+            .map_err(|_| anchor_lang::prelude::ProgramError::InvalidAccountData)?,
+            // ---------------------------------------------------------------
+            // Extra Account #1 (index 6 в общем списке):
             // ComplianceRecord PDA SENDER (отправитель)
             //
             // Token-2022 динамически вычислит PDA по этим seeds:
@@ -252,9 +263,10 @@ pub mod rwa_tokenizer {
                 ],
                 false, // is_signer
                 false, // is_writable (только чтение)
-            ).map_err(|_| anchor_lang::prelude::ProgramError::InvalidAccountData)?,
+            )
+            .map_err(|_| anchor_lang::prelude::ProgramError::InvalidAccountData)?,
             // ---------------------------------------------------------------
-            // Extra Account #1 (index 6 в общем списке):
+            // Extra Account #2 (index 7 в общем списке):
             // ComplianceRecord PDA RECEIVER (получатель)
             //
             // Owner получателя НЕ передаётся как отдельный account.
@@ -286,13 +298,16 @@ pub mod rwa_tokenizer {
                 ],
                 false, // is_signer
                 false, // is_writable
-            ).map_err(|_| anchor_lang::prelude::ProgramError::InvalidAccountData)?,
+            )
+            .map_err(|_| anchor_lang::prelude::ProgramError::InvalidAccountData)?,
         ];
 
         // Динамический расчёт размера аккаунта.
         // ExtraAccountMetaList::size_of() возвращает точный размер TLV-данных
         // для заданного количества extra account metas.
-        let account_size = ExtraAccountMetaList::size_of(account_metas.len()).map_err(|_| anchor_lang::prelude::ProgramError::InvalidAccountData)? as u64;
+        let account_size = ExtraAccountMetaList::size_of(account_metas.len())
+            .map_err(|_| anchor_lang::prelude::ProgramError::InvalidAccountData)?
+            as u64;
         let lamports = Rent::get()?.minimum_balance(account_size as usize);
 
         // Формируем signer seeds для PDA (ExtraAccountMetaList PDA подписывает
@@ -327,7 +342,8 @@ pub mod rwa_tokenizer {
         ExtraAccountMetaList::init::<ExecuteInstruction>(
             &mut ctx.accounts.extra_account_meta_list.try_borrow_mut_data()?,
             &account_metas,
-        ).map_err(|_| anchor_lang::prelude::ProgramError::InvalidAccountData)?;
+        )
+        .map_err(|_| anchor_lang::prelude::ProgramError::InvalidAccountData)?;
 
         msg!(
             "ExtraAccountMetaList initialized for mint {} ({} extra accounts, {} bytes)",
@@ -348,9 +364,10 @@ pub mod rwa_tokenizer {
     //
     // Логика проверки:
     //   1. Anti-spoofing: проверка check_is_transferring.
-    //   2. Sender compliance: ComplianceRecord PDA отправителя.
-    //   3. Receiver compliance: ComplianceRecord PDA получателя.
-    //   4. Status + expiration check для обоих.
+    //   2. AssetRecord: определяем легитимную authority актива.
+    //   3. Sender compliance: ComplianceRecord PDA отправителя.
+    //   4. Receiver compliance: ComplianceRecord PDA получателя.
+    //   5. Status + expiration check для обоих.
     //
     // Если любая проверка не проходит — возвращаем ошибку → Token-2022
     // отменяет весь трансфер.
@@ -366,14 +383,24 @@ pub mod rwa_tokenizer {
         check_is_transferring(&ctx)?;
 
         // ---------------------------------------------------------------
-        // Шаг 2: Compliance check отправителя (SENDER).
+        // Шаг 2: Загружаем AssetRecord и используем его authority как
+        // единственный легитимный источник compliance-одобрений для mint'а.
+        // ---------------------------------------------------------------
+        let asset = &ctx.accounts.asset_record;
+
+        // ---------------------------------------------------------------
+        // Шаг 3: Compliance check отправителя (SENDER).
         //
         // ComplianceRecord PDA динамически разрешён через
-        // ExtraAccountMetaList (index 5). Если PDA не существует
+        // ExtraAccountMetaList (index 6). Если PDA не существует
         // (кошелёк не в whitelist) — Anchor вернёт
         // AccountNotInitialized → трансфер блокируется.
         // ---------------------------------------------------------------
         let sender = &ctx.accounts.sender_compliance_record;
+        require!(
+            sender.authority == asset.authority,
+            RwaError::ComplianceNotApproved
+        );
         require!(
             sender.status == ComplianceStatus::Approved,
             RwaError::ComplianceNotApproved
@@ -384,10 +411,10 @@ pub mod rwa_tokenizer {
         }
 
         // ---------------------------------------------------------------
-        // Шаг 3: Compliance check получателя (RECEIVER).
+        // Шаг 4: Compliance check получателя (RECEIVER).
         //
         // ComplianceRecord PDA разрешён через ExtraAccountMetaList
-        // (index 6) с помощью AccountData: owner извлечён из
+        // (index 7) с помощью AccountData: owner извлечён из
         // destination token account data на offset 32.
         //
         // Почему это важно: если получатель под санкциями или
@@ -430,10 +457,12 @@ pub mod rwa_tokenizer {
                 receiver_data.len() > 8,
                 RwaError::ReceiverComplianceNotApproved
             );
-            let receiver = ComplianceRecord::try_deserialize(
-                &mut &receiver_data[..],
-            )?;
+            let receiver = ComplianceRecord::try_deserialize(&mut &receiver_data[..])?;
 
+            require!(
+                receiver.authority == asset.authority,
+                RwaError::ReceiverComplianceNotApproved
+            );
             require!(
                 receiver.status == ComplianceStatus::Approved,
                 RwaError::ReceiverComplianceNotApproved
@@ -478,7 +507,8 @@ pub mod rwa_tokenizer {
         data: &[u8],
     ) -> Result<()> {
         // Распаковываем инструкцию из SPL interface формата
-        let instruction = TransferHookInstruction::unpack(data).map_err(|_| anchor_lang::prelude::ProgramError::InvalidInstructionData)?;
+        let instruction = TransferHookInstruction::unpack(data)
+            .map_err(|_| anchor_lang::prelude::ProgramError::InvalidInstructionData)?;
 
         match instruction {
             TransferHookInstruction::Execute { amount } => {
@@ -514,16 +544,15 @@ fn check_is_transferring(ctx: &Context<TransferHook>) -> Result<()> {
     // Распаковываем данные token account как PodStateWithExtensions (без Mut),
     // чтобы получить доступ к TransferHookAccount extension.
     // PodAccount — это plain-old-data представление SPL Token account.
-    let account =
-        spl_token_2022::extension::PodStateWithExtensions::<
-            spl_token_2022::pod::PodAccount,
-        >::unpack(&account_data)?;
+    let account = spl_token_2022::extension::PodStateWithExtensions::<
+        spl_token_2022::pod::PodAccount,
+    >::unpack(&account_data)?;
 
     // Получаем TransferHookAccount extension и проверяем флаг `transferring`.
     // Token-2022 устанавливает этот флаг в true ТОЛЬКО во время реального
     // transfer'а. Это защищает от прямых вызовов hook'а злоумышленником.
-    let extension = account
-        .get_extension::<spl_token_2022::extension::transfer_hook::TransferHookAccount>()?;
+    let extension =
+        account.get_extension::<spl_token_2022::extension::transfer_hook::TransferHookAccount>()?;
 
     if !bool::from(extension.transferring) {
         return err!(RwaError::NotTransferring);
@@ -547,6 +576,9 @@ pub struct InitializeAsset<'info> {
 
     /// Mint токена, представляющего доли актива.
     /// Проверяем, что mint authority = наш authority.
+    #[account(
+        constraint = mint.mint_authority == COption::Some(authority.key()) @ RwaError::Unauthorized
+    )]
     pub mint: InterfaceAccount<'info, Mint>,
 
     /// PDA с метаданными актива.
@@ -587,11 +619,21 @@ pub struct UpdateAsset<'info> {
 #[derive(Accounts)]
 pub struct ApproveWallet<'info> {
     /// Authority, которая управляет whitelist'ом.
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = authority.key() == asset_record.authority @ RwaError::Unauthorized
+    )]
     pub authority: Signer<'info>,
 
     /// Mint токена.
     pub mint: InterfaceAccount<'info, Mint>,
+
+    /// AssetRecord PDA, привязывающий compliance-операции к эмитенту актива.
+    #[account(
+        seeds = [b"asset", mint.key().as_ref()],
+        bump = asset_record.bump,
+    )]
+    pub asset_record: Account<'info, AssetRecord>,
 
     /// CHECK: Кошелёк, которому предоставляется compliance-статус.
     /// Это может быть любой кошелёк (не обязательно signer).
@@ -617,7 +659,7 @@ pub struct ApproveWallet<'info> {
 pub struct RevokeWallet<'info> {
     /// Authority, отзывающая compliance.
     #[account(
-        constraint = authority.key() == compliance_record.authority @ RwaError::Unauthorized
+        constraint = authority.key() == asset_record.authority @ RwaError::Unauthorized
     )]
     pub authority: Signer<'info>,
 
@@ -630,8 +672,16 @@ pub struct RevokeWallet<'info> {
             compliance_record.wallet.as_ref(),
         ],
         bump = compliance_record.bump,
+        constraint = compliance_record.authority == asset_record.authority @ RwaError::Unauthorized,
     )]
     pub compliance_record: Account<'info, ComplianceRecord>,
+
+    /// AssetRecord PDA, подтверждающий authority эмитента для этого mint'а.
+    #[account(
+        seeds = [b"asset", compliance_record.mint.as_ref()],
+        bump = asset_record.bump,
+    )]
+    pub asset_record: Account<'info, AssetRecord>,
 }
 
 // --- InitializeExtraAccountMetaList ------------------------------------------
@@ -667,8 +717,9 @@ pub struct InitializeExtraAccountMetaList<'info> {
 //   index 2: destination_token — destination token account
 //   index 3: owner             — owner/authority source token account
 //   index 4: extra_account_meta_list — ExtraAccountMetaList PDA
-//   index 5: sender_compliance_record — extra account (ComplianceRecord PDA sender)
-//   index 6: receiver_compliance_record — extra account (ComplianceRecord PDA receiver)
+//   index 5: asset_record — extra account (AssetRecord PDA)
+//   index 6: sender_compliance_record — extra account (ComplianceRecord PDA sender)
+//   index 7: receiver_compliance_record — extra account (ComplianceRecord PDA receiver)
 //
 
 #[derive(Accounts)]
@@ -701,7 +752,14 @@ pub struct TransferHook<'info> {
     )]
     pub extra_account_meta_list: UncheckedAccount<'info>,
 
-    /// ComplianceRecord PDA отправителя (index 5).
+    /// AssetRecord PDA (index 5).
+    #[account(
+        seeds = [b"asset", mint.key().as_ref()],
+        bump = asset_record.bump,
+    )]
+    pub asset_record: Account<'info, AssetRecord>,
+
+    /// ComplianceRecord PDA отправителя (index 6).
     /// Динамически разрешён Token-2022 через ExtraAccountMetaList seeds:
     ///   ["compliance", AccountKey(1)=mint, AccountKey(3)=owner]
     /// Если PDA не существует → AccountNotInitialized → трансфер блокируется.
@@ -711,7 +769,7 @@ pub struct TransferHook<'info> {
     )]
     pub sender_compliance_record: Account<'info, ComplianceRecord>,
 
-    /// ComplianceRecord PDA получателя (index 6).
+    /// ComplianceRecord PDA получателя (index 7).
     /// Динамически разрешён Token-2022 через ExtraAccountMetaList seeds:
     ///   ["compliance", AccountKey(1)=mint, AccountData(2, 32, 32)=dest owner]
     /// Owner получателя извлекается из on-chain данных destination token account:
@@ -737,27 +795,27 @@ pub struct TransferHook<'info> {
 #[account]
 pub struct AssetRecord {
     /// Authority (эмитент), управляющая активом.
-    pub authority: Pubkey,       // 32
+    pub authority: Pubkey, // 32
     /// Mint SPL Token-2022, представляющий доли.
-    pub mint: Pubkey,            // 32
+    pub mint: Pubkey, // 32
     /// Название актива (e.g. "Apartment #42, Almaty").
-    pub name: String,            // 4 + len
+    pub name: String, // 4 + len
     /// Тип актива.
-    pub asset_type: AssetType,   // 1
-    /// Общее количество выпущенных долей.
-    pub total_supply: u64,       // 8
+    pub asset_type: AssetType, // 1
+    /// Планируемое количество долей, заявленное в metadata.
+    pub planned_supply: u64, // 8
     /// Оценка актива в USD (центы для точности, e.g. 15000000 = $150,000.00).
-    pub valuation_usd: u64,      // 8
+    pub valuation_usd: u64, // 8
     /// URI метаданных/документов (IPFS CID или HTTPS URL).
-    pub document_uri: String,    // 4 + len
+    pub document_uri: String, // 4 + len
     /// SHA256 хэш пакета документов (proof-of-asset).
     pub document_hash: [u8; 32], // 32
     /// Unix timestamp создания.
-    pub created_at: i64,         // 8
+    pub created_at: i64, // 8
     /// Флаг активности.
-    pub is_active: bool,         // 1
+    pub is_active: bool, // 1
     /// Bump seed PDA.
-    pub bump: u8,                // 1
+    pub bump: u8, // 1
 }
 
 impl AssetRecord {
@@ -774,13 +832,13 @@ impl AssetRecord {
         32 +    // mint
         4 + MAX_NAME_LEN + // name (String = 4 bytes length prefix + MAX data)
         1 +     // asset_type (enum, 1 byte)
-        8 +     // total_supply
+        8 +     // planned_supply
         8 +     // valuation_usd
         4 + MAX_URI_LEN + // document_uri (worst case)
         32 +    // document_hash
         8 +     // created_at
         1 +     // is_active
-        1       // bump
+        1 // bump
     }
 }
 
@@ -791,21 +849,21 @@ impl AssetRecord {
 #[account]
 pub struct ComplianceRecord {
     /// Mint, для которого действует этот compliance record.
-    pub mint: Pubkey,              // 32
+    pub mint: Pubkey, // 32
     /// Кошелёк, которому выдан compliance-статус.
-    pub wallet: Pubkey,            // 32
+    pub wallet: Pubkey, // 32
     /// Authority, выдавшая статус.
-    pub authority: Pubkey,         // 32
+    pub authority: Pubkey, // 32
     /// Текущий статус.
-    pub status: ComplianceStatus,  // 1
+    pub status: ComplianceStatus, // 1
     /// Уровень проверки (для аудита).
-    pub level: ComplianceLevel,    // 1
+    pub level: ComplianceLevel, // 1
     /// Unix timestamp одобрения.
-    pub approved_at: i64,          // 8
+    pub approved_at: i64, // 8
     /// Unix timestamp истечения (0 = бессрочно).
-    pub expires_at: i64,           // 8
+    pub expires_at: i64, // 8
     /// Bump seed PDA.
-    pub bump: u8,                  // 1
+    pub bump: u8, // 1
 }
 
 impl ComplianceRecord {
@@ -869,7 +927,7 @@ pub enum RwaError {
     UriTooLong,
 
     /// Некорректное количество долей.
-    #[msg("Total supply must be greater than zero")]
+    #[msg("Planned supply must be greater than zero")]
     InvalidSupply,
 
     /// Некорректная оценка актива.
