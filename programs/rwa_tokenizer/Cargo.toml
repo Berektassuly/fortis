@@ -2,7 +2,7 @@
 name = "rwa_tokenizer"
 version = "0.1.0"
 description = "RWA Tokenization with on-chain compliance enforcement via Token-2022 Transfer Hook"
-edition = "2024"
+edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "lib"]
@@ -20,8 +20,8 @@ idl-build = [
 ]
 
 [dependencies]
-anchor-lang = "0.32.1"
-anchor-spl = { version = "0.32.1", features = ["token_2022", "token_2022_extensions"] }
+anchor-lang = { workspace = true }
+anchor-spl = { workspace = true, features = ["token_2022", "token_2022_extensions"] }
 spl-transfer-hook-interface = "2.1.0"
 spl-tlv-account-resolution = "0.11.1"
 spl-token-2022 = { version = "9.0.0", features = ["no-entrypoint"] }

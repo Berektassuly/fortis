@@ -1,8 +1,13 @@
 [workspace]
-members = [
-    "programs/rwa_tokenizer"
-]
+members = ["programs/*"]
 resolver = "2"
+
+[workspace.package]
+edition = "2021"
+
+[workspace.dependencies]
+anchor-lang = "0.32.1"
+anchor-spl = "0.32.1"
 
 [profile.release]
 overflow-checks = true
