@@ -1,0 +1,703 @@
+//! HTTP routing configuration with rate limiting and OpenAPI documentation.
+
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::num::NonZeroU32;
+use std::sync::Arc;
+use std::time::Duration;
+
+use axum::extract::ConnectInfo;
+use axum::http::{HeaderValue, Method};
+use axum::{
+    Json, Router,
+    body::Body,
+    extract::State,
+    http::{Request, Response, StatusCode},
+    middleware::{self, Next},
+    response::IntoResponse,
+    routing::{delete, get, post},
+};
+use governor::{Quota, RateLimiter, clock::DefaultClock, state::keyed::DashMapStateStore};
+use tower::ServiceBuilder;
+use tower_http::{
+    cors::{Any, CorsLayer},
+    timeout::TimeoutLayer,
+    trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
+};
+use tracing::Level;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
+
+use crate::app::AppState;
+use crate::domain::{ErrorDetail, ErrorResponse, RateLimitResponse};
+
+use super::admin::{add_blocklist_handler, list_blocklist_handler, remove_blocklist_handler};
+use super::handlers::{
+    ApiDoc, get_transfer_request_handler, health_check_handler, helius_webhook_handler,
+    list_transfer_requests_handler, liveness_handler, quicknode_webhook_handler, readiness_handler,
+    retry_blockchain_handler, risk_check_handler, submit_transfer_handler,
+};
+
+/// Rate limiter configuration
+#[derive(Debug, Clone)]
+pub struct RateLimitConfig {
+    /// Requests per second for general endpoints
+    pub general_rps: u32,
+    /// Burst size for general endpoints
+    pub general_burst: u32,
+    /// Requests per second for health endpoints
+    pub health_rps: u32,
+    /// Burst size for health endpoints
+    pub health_burst: u32,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            general_rps: 10,
+            general_burst: 20,
+            health_rps: 100,
+            health_burst: 100,
+        }
+    }
+}
+
+impl RateLimitConfig {
+    /// Create config from environment variables
+    pub fn from_env() -> Self {
+        let general_rps = std::env::var("RATE_LIMIT_RPS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(10);
+        let general_burst = std::env::var("RATE_LIMIT_BURST")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(20);
+
+        Self {
+            general_rps,
+            general_burst,
+            health_rps: 100,
+            health_burst: 100,
+        }
+    }
+}
+
+/// Shared rate limiter state (keyed by client IP to prevent single-user DoS)
+pub struct RateLimitState {
+    transfers_limiter: RateLimiter<IpAddr, DashMapStateStore<IpAddr>, DefaultClock>,
+    health_limiter: RateLimiter<IpAddr, DashMapStateStore<IpAddr>, DefaultClock>,
+    config: RateLimitConfig,
+}
+
+impl RateLimitState {
+    pub fn new(config: RateLimitConfig) -> Self {
+        let transfers_quota = Quota::per_second(
+            NonZeroU32::new(config.general_rps)
+                .expect("Invalid configuration: general_rps rate limit cannot be 0"),
+        )
+        .allow_burst(
+            NonZeroU32::new(config.general_burst)
+                .expect("Invalid configuration: general_burst rate limit cannot be 0"),
+        );
+        let health_quota = Quota::per_second(
+            NonZeroU32::new(config.health_rps)
+                .expect("Invalid configuration: health_rps rate limit cannot be 0"),
+        )
+        .allow_burst(
+            NonZeroU32::new(config.health_burst)
+                .expect("Invalid configuration: health_burst rate limit cannot be 0"),
+        );
+
+        Self {
+            transfers_limiter: RateLimiter::keyed(transfers_quota),
+            health_limiter: RateLimiter::keyed(health_quota),
+            config,
+        }
+    }
+}
+
+/// Rate limit middleware for transfers endpoints (keyed by client IP)
+async fn rate_limit_transfers_middleware(
+    State(rate_limit): State<Arc<RateLimitState>>,
+    request: Request<Body>,
+    next: Next,
+) -> Response<Body> {
+    let client_ip = extract_client_ip(&request);
+
+    match rate_limit.transfers_limiter.check_key(&client_ip) {
+        Ok(_) => {
+            let mut response = next.run(request).await;
+            // Add rate limit headers
+            let headers = response.headers_mut();
+            headers.insert(
+                "X-RateLimit-Limit",
+                rate_limit.config.general_rps.to_string().parse().unwrap(),
+            );
+            response
+        }
+        Err(not_until) => {
+            let wait_time = not_until.wait_time_from(governor::clock::Clock::now(
+                &governor::clock::DefaultClock::default(),
+            ));
+            let retry_after = wait_time.as_secs();
+
+            let body = RateLimitResponse {
+                error: ErrorDetail {
+                    r#type: "rate_limited".to_string(),
+                    message: "Rate limit exceeded. Please slow down your requests.".to_string(),
+                },
+                retry_after,
+            };
+
+            let mut response = (StatusCode::TOO_MANY_REQUESTS, Json(body)).into_response();
+            let headers = response.headers_mut();
+            headers.insert(
+                "X-RateLimit-Limit",
+                rate_limit.config.general_rps.to_string().parse().unwrap(),
+            );
+            headers.insert("X-RateLimit-Remaining", "0".parse().unwrap());
+            headers.insert("Retry-After", retry_after.to_string().parse().unwrap());
+            response
+        }
+    }
+}
+
+/// Rate limit middleware for health endpoints (keyed by client IP)
+async fn rate_limit_health_middleware(
+    State(rate_limit): State<Arc<RateLimitState>>,
+    request: Request<Body>,
+    next: Next,
+) -> Response<Body> {
+    let client_ip = extract_client_ip(&request);
+
+    match rate_limit.health_limiter.check_key(&client_ip) {
+        Ok(_) => next.run(request).await,
+        Err(not_until) => {
+            let wait_time = not_until.wait_time_from(governor::clock::Clock::now(
+                &governor::clock::DefaultClock::default(),
+            ));
+            let retry_after = wait_time.as_secs();
+
+            let body = ErrorResponse {
+                error: ErrorDetail {
+                    r#type: "rate_limited".to_string(),
+                    message: "Rate limit exceeded".to_string(),
+                },
+            };
+
+            let mut response = (StatusCode::TOO_MANY_REQUESTS, Json(body)).into_response();
+            response
+                .headers_mut()
+                .insert("Retry-After", retry_after.to_string().parse().unwrap());
+            response
+        }
+    }
+}
+
+/// Extract the client IP address from the request.
+/// Priority: X-Forwarded-For header > ConnectInfo > fallback to 127.0.0.1
+fn extract_client_ip(request: &Request<Body>) -> IpAddr {
+    // 1. Check X-Forwarded-For header (for reverse proxy setups)
+    if let Some(forwarded_for) = request.headers().get("X-Forwarded-For") {
+        if let Ok(value) = forwarded_for.to_str() {
+            // X-Forwarded-For can contain multiple IPs: "client, proxy1, proxy2"
+            // The first one is the original client IP
+            if let Some(first_ip) = value.split(',').next() {
+                if let Ok(ip) = first_ip.trim().parse::<IpAddr>() {
+                    return ip;
+                }
+            }
+        }
+    }
+
+    // 2. Check ConnectInfo from axum (direct connection IP)
+    if let Some(connect_info) = request.extensions().get::<ConnectInfo<SocketAddr>>() {
+        return connect_info.0.ip();
+    }
+
+    // 3. Fallback (e.g. in tests without ConnectInfo)
+    IpAddr::V4(Ipv4Addr::LOCALHOST)
+}
+
+/// Create CORS layer for cross-origin requests
+fn create_cors_layer() -> CorsLayer {
+    let allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS").unwrap_or_else(|_| {
+        "https://solana-compliance-relayer-frontend.berektassuly.com".to_string()
+    });
+
+    let origins: Vec<HeaderValue> = allowed_origins
+        .split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect();
+
+    // Add localhost for development
+    let mut all_origins = origins;
+    if let Ok(val) = "http://localhost:3000".parse() {
+        all_origins.push(val);
+    }
+    if let Ok(val) = "http://localhost:3001".parse() {
+        all_origins.push(val);
+    }
+
+    CorsLayer::new()
+        .allow_origin(all_origins)
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers(Any)
+        .expose_headers([
+            "X-RateLimit-Limit".parse().unwrap(),
+            "X-RateLimit-Remaining".parse().unwrap(),
+            "Retry-After".parse().unwrap(),
+        ])
+        .max_age(Duration::from_secs(86400)) // 24 hours
+}
+
+/// Create router without rate limiting
+pub fn create_router(app_state: Arc<AppState>) -> Router {
+    let middleware = ServiceBuilder::new()
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                .on_response(DefaultOnResponse::new().level(Level::INFO)),
+        )
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(30),
+        ));
+
+    // Transfer routes
+    let transfer_routes = Router::new()
+        .route(
+            "/",
+            post(submit_transfer_handler).get(list_transfer_requests_handler),
+        )
+        .route("/{id}", get(get_transfer_request_handler))
+        .route("/{id}/retry", post(retry_blockchain_handler));
+
+    // Health routes
+    let health_routes = Router::new()
+        .route("/", get(health_check_handler))
+        .route("/live", get(liveness_handler))
+        .route("/ready", get(readiness_handler));
+
+    // Webhook routes (no rate limiting - webhooks need immediate delivery)
+    let webhook_routes = Router::new()
+        .route("/helius", post(helius_webhook_handler))
+        .route("/quicknode", post(quicknode_webhook_handler));
+
+    // Admin routes for blocklist management
+    let admin_routes = Router::new()
+        .route(
+            "/blocklist",
+            post(add_blocklist_handler).get(list_blocklist_handler),
+        )
+        .route("/blocklist/{address}", delete(remove_blocklist_handler));
+
+    // Compliance routes
+    let compliance_routes = Router::new().route("/", post(risk_check_handler));
+
+    Router::new()
+        .nest("/transfer-requests", transfer_routes)
+        .nest("/webhooks", webhook_routes)
+        .nest("/health", health_routes)
+        .nest("/admin", admin_routes)
+        .nest("/risk-check", compliance_routes)
+        .layer(create_cors_layer())
+        .layer(middleware)
+        .with_state(app_state)
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+}
+
+/// Create router with rate limiting enabled
+pub fn create_router_with_rate_limit(app_state: Arc<AppState>, config: RateLimitConfig) -> Router {
+    let rate_limit_state = Arc::new(RateLimitState::new(config));
+
+    let middleware = ServiceBuilder::new()
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                .on_response(DefaultOnResponse::new().level(Level::INFO)),
+        )
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(30),
+        ));
+
+    // Transfer routes with rate limiting
+    let transfer_routes = Router::new()
+        .route(
+            "/",
+            post(submit_transfer_handler).get(list_transfer_requests_handler),
+        )
+        .route("/{id}", get(get_transfer_request_handler))
+        .route("/{id}/retry", post(retry_blockchain_handler))
+        .layer(middleware::from_fn_with_state(
+            Arc::clone(&rate_limit_state),
+            rate_limit_transfers_middleware,
+        ));
+
+    // Health routes with separate rate limiting
+    let health_routes = Router::new()
+        .route("/", get(health_check_handler))
+        .route("/live", get(liveness_handler))
+        .route("/ready", get(readiness_handler))
+        .layer(middleware::from_fn_with_state(
+            Arc::clone(&rate_limit_state),
+            rate_limit_health_middleware,
+        ));
+
+    // Webhook routes (no rate limiting - webhooks need immediate delivery)
+    let webhook_routes = Router::new()
+        .route("/helius", post(helius_webhook_handler))
+        .route("/quicknode", post(quicknode_webhook_handler));
+
+    // Admin routes for blocklist management (with rate limiting)
+    let admin_routes = Router::new()
+        .route(
+            "/blocklist",
+            post(add_blocklist_handler).get(list_blocklist_handler),
+        )
+        .route("/blocklist/{address}", delete(remove_blocklist_handler))
+        .layer(middleware::from_fn_with_state(
+            Arc::clone(&rate_limit_state),
+            rate_limit_transfers_middleware,
+        ));
+
+    // Compliance routes (with rate limiting)
+    let compliance_routes =
+        Router::new()
+            .route("/", post(risk_check_handler))
+            .layer(middleware::from_fn_with_state(
+                Arc::clone(&rate_limit_state),
+                rate_limit_transfers_middleware,
+            ));
+
+    Router::new()
+        .nest("/transfer-requests", transfer_routes)
+        .nest("/webhooks", webhook_routes)
+        .nest("/health", health_routes)
+        .nest("/admin", admin_routes)
+        .nest("/risk-check", compliance_routes)
+        .layer(create_cors_layer())
+        .layer(middleware)
+        .with_state(app_state)
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::{
+        Router,
+        body::Body,
+        http::{Request, StatusCode},
+        middleware,
+        response::IntoResponse,
+        routing::get,
+    };
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    use super::*;
+
+    use crate::test_utils::{MockBlockchainClient, MockComplianceProvider, MockDatabaseClient};
+
+    fn create_test_state() -> Arc<AppState> {
+        let db = Arc::new(MockDatabaseClient::new());
+        let bc = Arc::new(MockBlockchainClient::new());
+        let cp = Arc::new(MockComplianceProvider::new());
+        Arc::new(AppState::new(db as _, bc as _, cp as _))
+    }
+
+    mod rate_limit_config_tests {
+        use super::*;
+
+        #[test]
+        fn test_rate_limit_config_default() {
+            let config = RateLimitConfig::default();
+            assert_eq!(config.general_rps, 10);
+            assert_eq!(config.general_burst, 20);
+        }
+
+        #[test]
+        fn test_rate_limit_config_default_health_values() {
+            let config = RateLimitConfig::default();
+            assert_eq!(config.health_rps, 100);
+            assert_eq!(config.health_burst, 100);
+        }
+
+        #[test]
+        fn test_rate_limit_config_custom() {
+            let config = RateLimitConfig {
+                general_rps: 50,
+                general_burst: 100,
+                health_rps: 200,
+                health_burst: 200,
+            };
+            assert_eq!(config.general_rps, 50);
+            assert_eq!(config.general_burst, 100);
+            assert_eq!(config.health_rps, 200);
+            assert_eq!(config.health_burst, 200);
+        }
+
+        #[test]
+        fn test_rate_limit_config_debug() {
+            let config = RateLimitConfig::default();
+            let debug_str = format!("{:?}", config);
+            assert!(debug_str.contains("RateLimitConfig"));
+            assert!(debug_str.contains("general_rps"));
+        }
+
+        #[test]
+        fn test_rate_limit_config_clone() {
+            let config1 = RateLimitConfig {
+                general_rps: 42,
+                general_burst: 84,
+                health_rps: 100,
+                health_burst: 100,
+            };
+            let config2 = config1.clone();
+            assert_eq!(config1.general_rps, config2.general_rps);
+            assert_eq!(config1.general_burst, config2.general_burst);
+        }
+    }
+
+    mod middleware_tests {
+        use super::*;
+        use http_body_util::BodyExt;
+
+        async fn dummy_handler() -> impl IntoResponse {
+            StatusCode::OK
+        }
+
+        #[tokio::test]
+        async fn test_rate_limit_items_middleware_blocks_request() {
+            let config = RateLimitConfig {
+                general_rps: 1,
+                general_burst: 1,
+                ..Default::default()
+            };
+
+            let state = Arc::new(RateLimitState::new(config));
+
+            let app =
+                Router::new()
+                    .route("/", get(dummy_handler))
+                    .layer(middleware::from_fn_with_state(
+                        state,
+                        rate_limit_transfers_middleware,
+                    ));
+
+            app.clone()
+                .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+
+            let response = app
+                .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        }
+
+        #[tokio::test]
+        async fn test_rate_limit_success_includes_limit_header() {
+            let config = RateLimitConfig {
+                general_rps: 100,
+                general_burst: 100,
+                ..Default::default()
+            };
+
+            let state = Arc::new(RateLimitState::new(config));
+
+            let app =
+                Router::new()
+                    .route("/", get(dummy_handler))
+                    .layer(middleware::from_fn_with_state(
+                        state,
+                        rate_limit_transfers_middleware,
+                    ));
+
+            let response = app
+                .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::OK);
+            assert!(response.headers().contains_key("X-RateLimit-Limit"));
+            assert_eq!(response.headers().get("X-RateLimit-Limit").unwrap(), "100");
+        }
+
+        #[tokio::test]
+        async fn test_rate_limit_exceeded_includes_headers() {
+            let config = RateLimitConfig {
+                general_rps: 1,
+                general_burst: 1,
+                ..Default::default()
+            };
+
+            let state = Arc::new(RateLimitState::new(config));
+
+            let app =
+                Router::new()
+                    .route("/", get(dummy_handler))
+                    .layer(middleware::from_fn_with_state(
+                        state,
+                        rate_limit_transfers_middleware,
+                    ));
+
+            // Exhaust the limit
+            app.clone()
+                .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+
+            // This should be rate limited
+            let response = app
+                .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+            assert!(response.headers().contains_key("X-RateLimit-Limit"));
+            assert!(response.headers().contains_key("X-RateLimit-Remaining"));
+            assert!(response.headers().contains_key("Retry-After"));
+            assert_eq!(
+                response.headers().get("X-RateLimit-Remaining").unwrap(),
+                "0"
+            );
+        }
+
+        #[tokio::test]
+        async fn test_rate_limit_exceeded_response_body() {
+            let config = RateLimitConfig {
+                general_rps: 1,
+                general_burst: 1,
+                ..Default::default()
+            };
+
+            let state = Arc::new(RateLimitState::new(config));
+
+            let app =
+                Router::new()
+                    .route("/", get(dummy_handler))
+                    .layer(middleware::from_fn_with_state(
+                        state,
+                        rate_limit_transfers_middleware,
+                    ));
+
+            // Exhaust the limit
+            app.clone()
+                .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+
+            let response = app
+                .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+
+            let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+            let body_str = String::from_utf8_lossy(&body_bytes);
+            assert!(body_str.contains("rate_limited"));
+            assert!(body_str.contains("slow down"));
+        }
+
+        #[tokio::test]
+        async fn test_health_rate_limit_middleware_allows_high_volume() {
+            let config = RateLimitConfig {
+                general_rps: 1,
+                general_burst: 1,
+                health_rps: 100,
+                health_burst: 100,
+            };
+
+            let state = Arc::new(RateLimitState::new(config));
+
+            let app =
+                Router::new()
+                    .route("/", get(dummy_handler))
+                    .layer(middleware::from_fn_with_state(
+                        state,
+                        rate_limit_health_middleware,
+                    ));
+
+            // Should allow multiple requests
+            for _ in 0..10 {
+                let response = app
+                    .clone()
+                    .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+            }
+        }
+    }
+
+    mod router_tests {
+        use super::*;
+        // use crate::app::AppState;
+
+        #[tokio::test]
+        async fn test_router_without_rate_limit_routes() {
+            let app_state = create_test_state();
+            let router = create_router(app_state);
+
+            let res = router
+                .oneshot(
+                    Request::builder()
+                        .uri("/health/live")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(res.status(), StatusCode::OK);
+        }
+
+        #[tokio::test]
+        async fn test_router_items_get_nonexistent() {
+            let app_state = create_test_state();
+            let router = create_router(app_state);
+
+            let res = router
+                .oneshot(
+                    Request::builder()
+                        .uri("/transfer-requests/nonexistent-id")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            // Should return 404 for non-existent item
+            assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        }
+
+        #[tokio::test]
+        async fn test_router_with_rate_limit_items_accessible() {
+            let app_state = create_test_state();
+            let config = RateLimitConfig::default();
+            let router = create_router_with_rate_limit(app_state, config);
+
+            let res = router
+                .oneshot(
+                    Request::builder()
+                        .uri("/transfer-requests/test-id")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            // Should return 404 (not found), not forbidden or error
+            assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        }
+    }
+}

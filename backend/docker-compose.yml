@@ -1,0 +1,57 @@
+# ============================================================================
+# Solana Compliance Relayer - Docker Compose
+# Production-ready configuration with PostgreSQL and application service
+# ============================================================================
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Database
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: compliance-relayer-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: compliance_relayer
+    ports:
+      - "5432:5432"
+    volumes:
+      - compliance_relayer_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - compliance_net
+
+  # ---------------------------------------------------------------------------
+  # Solana Compliance Relayer Application
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: compliance-relayer-app
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/compliance_relayer
+    restart: unless-stopped
+    networks:
+      - compliance_net
+
+volumes:
+  compliance_relayer_pg_data:
+    driver: local
+
+networks:
+  compliance_net:
