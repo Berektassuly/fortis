@@ -49,7 +49,7 @@ use spl_transfer_hook_interface::instruction::{
     ExecuteInstruction, TransferHookInstruction,
 };
 
-declare_id!("RWAtok3nizer1111111111111111111111111111111");
+declare_id!("8oiLUNoBU3CrpuR8HhRTCawWfDog8WbYkcX1PkqmGvpk");
 
 // =============================================================================
 // Constants
