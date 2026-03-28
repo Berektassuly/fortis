@@ -1,7 +1,7 @@
 {
   "name": "fortis",
   "version": "1.0.0",
-  "description": "",
+  "description": "Fortis RWA monorepo",
   "main": "index.js",
   "directories": {
     "test": "tests"
@@ -16,7 +16,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/Berektassuly/fortis/issues"
   },

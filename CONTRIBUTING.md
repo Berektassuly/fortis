@@ -64,12 +64,15 @@ docs(readme): update deployment instructions
 
 ### Repository Structure
 
-This project follows a **multi-repository** architecture:
+This project now follows a **monorepo** architecture:
 
-| Repository | Purpose |
-|------------|---------|
-| `fortis` | Repository containing the Fortis RWA backend and Anchor programs |
-| `fortis-frontend` | Fortis web application for request creation and signing |
+| Path | Purpose |
+|------|---------|
+| `backend/` | Rust backend API, worker, crank, and PostgreSQL integration |
+| `programs/rwa_tokenizer/` | Anchor program that enforces wallet compliance on chain |
+| `tests/` | TypeScript integration tests for the Anchor workspace |
+| `scripts/` | Helper scripts for Solana asset setup and operations |
+| `app/` | Reserved application workspace for future client-facing code |
 
 ### Backend Development Environment
 
@@ -77,31 +80,28 @@ This project follows a **multi-repository** architecture:
 
 - **Rust**: 1.75+ (stable)
 - **Docker**: For PostgreSQL
-- **sqlx-cli**: For migrations
+- **sqlx-cli**: Optional, for creating or manually applying migrations
 
 #### Setup
 
 ```bash
 # Clone the repository
 git clone https://github.com/Berektassuly/fortis.git
-cd fortis/backend
+cd fortis
 
 # Install sqlx-cli
 cargo install sqlx-cli --no-default-features --features postgres
 
 # Start PostgreSQL
-docker-compose up -d
+docker compose up -d
 
 # Copy environment template
 cp .env.example .env
 # Edit .env with your configuration
 
-# Run migrations
-cargo sqlx migrate run
-
 # Verify setup
-cargo build
-cargo test
+cargo check --manifest-path backend/Cargo.toml
+cargo test --manifest-path backend/Cargo.toml
 ```
 
 #### Recommended Tools
@@ -118,40 +118,26 @@ Run continuous checking during development:
 bacon clippy
 ```
 
-### Frontend Development Environment
+### TypeScript and Anchor Workspace
 
-The frontend lives in a separate repository:
+The monorepo also contains the Anchor test harness and Solana helper scripts at the root:
 
 ```bash
-# Clone the active frontend repository URL provided by the maintainers
-cd <frontend-directory>
-
 # Install dependencies
-pnpm install
+npm install
 
-# Start development server
-pnpm run dev
+# Build and test the on-chain program
+anchor build
+anchor test
 ```
 
-#### WASM Signer Development
+#### Transfer Request CLI Development
 
-If modifying the WASM cryptographic module:
+If modifying signed request generation or message formatting, keep the backend verifier and the CLI helper aligned:
 
 ```bash
-# Install wasm-pack
-curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-# Add WASM target
-rustup target add wasm32-unknown-unknown
-
-# Rebuild WASM module
-cd wasm-signer
-wasm-pack build --target web --out-dir ../src/lib/wasm-pkg
-
-# Clear Next.js cache and restart
-rm -rf ../.next
-cd ..
-pnpm run dev
+cd backend
+cargo run --bin generate_transfer_request -- --help
 ```
 
 ---
@@ -414,8 +400,8 @@ cargo tarpaulin --out Html --output-dir coverage
 cargo test test_compliance_status_transition
 
 # Run integration tests (requires Docker)
-docker-compose up -d
-cargo test --test integration_tests
+docker compose up -d
+cargo test --manifest-path backend/Cargo.toml
 ```
 
 ---

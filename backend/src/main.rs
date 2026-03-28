@@ -1,19 +1,17 @@
 //! Application entry point.
 
 use std::env;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use dotenvy::dotenv;
 use ed25519_dalek::SigningKey;
 use secrecy::SecretString;
 use tokio::signal;
 use tracing::{info, warn};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
-use fortis_rwa_backend::api::{
-    RateLimitConfig, create_router, create_router_with_rate_limit,
-};
+use fortis_rwa_backend::api::{RateLimitConfig, create_router, create_router_with_rate_limit};
 use fortis_rwa_backend::app::{
     AppState, CrankConfig, RiskService, WorkerConfig, spawn_crank, spawn_worker,
 };
@@ -203,6 +201,50 @@ fn init_tracing() {
         .init();
 }
 
+fn append_ancestor_env_paths(paths: &mut Vec<PathBuf>, start: &Path) {
+    for ancestor in start.ancestors() {
+        let candidate = ancestor.join(".env");
+        if !paths.iter().any(|path| path == &candidate) {
+            paths.push(candidate);
+        }
+    }
+}
+
+fn load_env_file() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(custom_path) = env::var_os("FORTIS_ENV_FILE").map(PathBuf::from)
+        && custom_path.is_file()
+    {
+        candidates.push(custom_path);
+    }
+
+    if let Ok(current_dir) = env::current_dir() {
+        append_ancestor_env_paths(&mut candidates, &current_dir);
+    }
+
+    if let Ok(current_exe) = env::current_exe()
+        && let Some(exe_dir) = current_exe.parent()
+    {
+        append_ancestor_env_paths(&mut candidates, exe_dir);
+    }
+
+    if let Some(repo_root) = Path::new(env!("CARGO_MANIFEST_DIR")).parent() {
+        let candidate = repo_root.join(".env");
+        if !candidates.iter().any(|path| path == &candidate) {
+            candidates.push(candidate);
+        }
+    }
+
+    for candidate in candidates {
+        if candidate.is_file() && dotenvy::from_path(&candidate).is_ok() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
 async fn shutdown_signal() {
     let ctrl_c = async {
         signal::ctrl_c()
@@ -229,13 +271,16 @@ async fn shutdown_signal() {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenv().ok();
+    let env_file = load_env_file();
     init_tracing();
 
-    info!(
-        "Fortis RWA Backend v{}",
-        env!("CARGO_PKG_VERSION")
-    );
+    if let Some(path) = env_file {
+        info!(path = %path.display(), "Loaded environment variables from file");
+    } else {
+        info!("No .env file found; relying on process environment");
+    }
+
+    info!("Fortis RWA Backend v{}", env!("CARGO_PKG_VERSION"));
 
     let config = Config::from_env()?;
 
@@ -348,13 +393,11 @@ async fn main() -> Result<()> {
     let app_state = app_state.with_blocklist(Arc::clone(&blocklist));
 
     // Initialize risk service for pre-flight compliance checks
-    let range_provider_arc = Arc::new(
-        fortis_rwa_backend::infra::RangeComplianceProvider::new(
-            config.range_api_key.clone(),
-            config.range_api_url.clone(),
-            Some(config.range_risk_threshold),
-        ),
-    );
+    let range_provider_arc = Arc::new(fortis_rwa_backend::infra::RangeComplianceProvider::new(
+        config.range_api_key.clone(),
+        config.range_api_url.clone(),
+        Some(config.range_risk_threshold),
+    ));
     let risk_service = Arc::new(RiskService::new(
         Arc::clone(&app_state.db_client),
         Arc::clone(&app_state.blockchain_client),

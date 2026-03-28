@@ -14,18 +14,20 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Create a new empty project
+# Build from the monorepo root while compiling the backend crate
 WORKDIR /app
 
-# Copy manifests
-COPY Cargo.toml Cargo.lock ./
+# Copy backend manifests first for better layer caching
+COPY backend/Cargo.toml ./backend/Cargo.toml
+COPY backend/Cargo.lock ./backend/Cargo.lock
 
-# Copy source code
-COPY src ./src
-COPY migrations ./migrations
-COPY benches ./benches
+# Copy backend source tree
+COPY backend/src ./backend/src
+COPY backend/migrations ./backend/migrations
+COPY backend/benches ./backend/benches
 
 # Build release binary
+WORKDIR /app/backend
 RUN cargo build --release --locked --features real-blockchain
 
 # -----------------------------------------------------------------------------
@@ -51,10 +53,10 @@ RUN useradd -r -s /bin/false appuser
 WORKDIR /app
 
 # Copy the binary from builder stage
-COPY --from=builder /app/target/release/fortis-rwa-backend /app/fortis-rwa-backend
+COPY --from=builder /app/backend/target/release/fortis-rwa-backend /app/fortis-rwa-backend
 
 # Copy migrations (needed for SQLx runtime migrations)
-COPY --from=builder /app/migrations /app/migrations
+COPY --from=builder /app/backend/migrations /app/migrations
 
 # Set ownership
 RUN chown -R appuser:appuser /app

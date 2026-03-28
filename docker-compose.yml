@@ -42,7 +42,7 @@ services:
     ports:
       - "3000:3000"
     env_file:
-      - .env
+      - ./.env
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/fortis_rwa_backend
     restart: unless-stopped

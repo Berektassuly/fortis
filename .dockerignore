@@ -1,0 +1,9 @@
+.git
+.anchor
+node_modules
+target
+backend/target
+.env
+.env.local
+*.log
+**/.DS_Store
