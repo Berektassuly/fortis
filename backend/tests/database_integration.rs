@@ -5,11 +5,11 @@
 
 use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 
-use solana_compliance_relayer::domain::{
+use fortis_rwa_backend::domain::{
     BlockchainStatus, ComplianceDecision, ComplianceLevel, DatabaseClient, SubmitTransferRequest,
     TransferType, WalletApprovalStatus,
 };
-use solana_compliance_relayer::infra::{PostgresClient, PostgresConfig};
+use fortis_rwa_backend::infra::{PostgresClient, PostgresConfig};
 
 fn test_pubkey(seed: u8) -> String {
     bs58::encode([seed; 32]).into_string()

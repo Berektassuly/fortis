@@ -30,7 +30,7 @@ impl RpcProviderType {
     ///
     /// # Examples
     /// ```
-    /// use solana_compliance_relayer::infra::blockchain::strategies::RpcProviderType;
+    /// use fortis_rwa_backend::infra::blockchain::strategies::RpcProviderType;
     ///
     /// assert_eq!(
     ///     RpcProviderType::detect("https://mainnet.helius-rpc.com/?api-key=xxx"),

@@ -5,7 +5,7 @@
 //!   cargo run --bin generate_transfer_request -- --mint <MINT> --to <WALLET> --amount <RAW_UNITS>
 
 use ed25519_dalek::{Signer, SigningKey};
-use solana_compliance_relayer::domain::types::SubmitTransferRequest;
+use fortis_rwa_backend::domain::types::SubmitTransferRequest;
 use solana_sdk::pubkey::Pubkey;
 
 const DEFAULT_PRIVATE_KEY_B58: &str =

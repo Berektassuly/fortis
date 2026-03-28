@@ -11,18 +11,18 @@ use tokio::signal;
 use tracing::{info, warn};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
-use solana_compliance_relayer::api::{
+use fortis_rwa_backend::api::{
     RateLimitConfig, create_router, create_router_with_rate_limit,
 };
-use solana_compliance_relayer::app::{
+use fortis_rwa_backend::app::{
     AppState, CrankConfig, RiskService, WorkerConfig, spawn_crank, spawn_worker,
 };
-use solana_compliance_relayer::infra::RpcBlockchainClient;
-use solana_compliance_relayer::infra::blockchain::{
+use fortis_rwa_backend::infra::RpcBlockchainClient;
+use fortis_rwa_backend::infra::blockchain::{
     QuickNodePrivateSubmissionStrategy, QuickNodeSubmissionConfig, RpcProviderType,
 };
-use solana_compliance_relayer::infra::compliance::range::DEFAULT_RISK_THRESHOLD;
-use solana_compliance_relayer::infra::{
+use fortis_rwa_backend::infra::compliance::range::DEFAULT_RISK_THRESHOLD;
+use fortis_rwa_backend::infra::{
     BlocklistManager, PostgresClient, PostgresConfig, signing_key_from_base58,
 };
 
@@ -233,7 +233,7 @@ async fn main() -> Result<()> {
     init_tracing();
 
     info!(
-        "🏗️  Solana Compliance Relayer v{}",
+        "Fortis RWA Backend v{}",
         env!("CARGO_PKG_VERSION")
     );
 
@@ -259,7 +259,7 @@ async fn main() -> Result<()> {
     // Build submission strategy if Jito bundles are enabled and provider is QuickNode
     // Also track the tip amount for injection into transactions
     let (submission_strategy, jito_tip_for_client): (
-        Option<Box<dyn solana_compliance_relayer::infra::blockchain::SubmissionStrategy>>,
+        Option<Box<dyn fortis_rwa_backend::infra::blockchain::SubmissionStrategy>>,
         Option<u64>,
     ) = if config.use_jito_bundles {
         if matches!(provider_type, RpcProviderType::QuickNode) {
@@ -304,7 +304,7 @@ async fn main() -> Result<()> {
     )?;
     info!("   ✓ Blockchain client created");
 
-    let compliance_provider = solana_compliance_relayer::infra::RangeComplianceProvider::new(
+    let compliance_provider = fortis_rwa_backend::infra::RangeComplianceProvider::new(
         config.range_api_key.clone(),
         config.range_api_url.clone(),
         Some(config.range_risk_threshold),
@@ -349,7 +349,7 @@ async fn main() -> Result<()> {
 
     // Initialize risk service for pre-flight compliance checks
     let range_provider_arc = Arc::new(
-        solana_compliance_relayer::infra::RangeComplianceProvider::new(
+        fortis_rwa_backend::infra::RangeComplianceProvider::new(
             config.range_api_key.clone(),
             config.range_api_url.clone(),
             Some(config.range_risk_threshold),

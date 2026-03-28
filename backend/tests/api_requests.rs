@@ -9,12 +9,12 @@ use http_body_util::BodyExt;
 use std::sync::Arc;
 use tower::ServiceExt;
 
-use solana_compliance_relayer::api::create_router;
-use solana_compliance_relayer::app::AppState;
-use solana_compliance_relayer::domain::{
+use fortis_rwa_backend::api::create_router;
+use fortis_rwa_backend::app::AppState;
+use fortis_rwa_backend::domain::{
     PaginatedResponse, SubmitTransferRequest, TransferRequest, TransferType,
 };
-use solana_compliance_relayer::test_utils::{
+use fortis_rwa_backend::test_utils::{
     MockBlockchainClient, MockComplianceProvider, MockDatabaseClient,
 };
 

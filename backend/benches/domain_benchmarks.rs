@@ -1,5 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use solana_compliance_relayer::domain::{SubmitTransferRequest, TransferType};
+use fortis_rwa_backend::domain::{SubmitTransferRequest, TransferType};
 use std::hint::black_box;
 use validator::Validate;
 

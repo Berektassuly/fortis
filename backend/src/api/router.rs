@@ -222,7 +222,7 @@ fn extract_client_ip(request: &Request<Body>) -> IpAddr {
 /// Create CORS layer for cross-origin requests
 fn create_cors_layer() -> CorsLayer {
     let allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS").unwrap_or_else(|_| {
-        "https://solana-compliance-relayer-frontend.berektassuly.com".to_string()
+        String::new()
     });
 
     let origins: Vec<HeaderValue> = allowed_origins

@@ -1,5 +1,5 @@
 # ============================================================================
-# Solana Compliance Relayer - Production Dockerfile
+# Fortis RWA - Production Dockerfile
 # Multi-stage build for minimal production image
 # ============================================================================
 
@@ -51,7 +51,7 @@ RUN useradd -r -s /bin/false appuser
 WORKDIR /app
 
 # Copy the binary from builder stage
-COPY --from=builder /app/target/release/solana-compliance-relayer /app/solana-compliance-relayer
+COPY --from=builder /app/target/release/fortis-rwa-backend /app/fortis-rwa-backend
 
 # Copy migrations (needed for SQLx runtime migrations)
 COPY --from=builder /app/migrations /app/migrations
@@ -75,4 +75,4 @@ ENV HOST=0.0.0.0
 ENV PORT=3000
 
 # Run the binary
-ENTRYPOINT ["/app/solana-compliance-relayer"]
+ENTRYPOINT ["/app/fortis-rwa-backend"]

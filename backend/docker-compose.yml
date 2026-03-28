@@ -1,5 +1,5 @@
 # ============================================================================
-# Solana Compliance Relayer - Docker Compose
+# Fortis RWA - Docker Compose
 # Production-ready configuration with PostgreSQL and application service
 # ============================================================================
 version: '3.8'
@@ -10,15 +10,15 @@ services:
   # ---------------------------------------------------------------------------
   db:
     image: postgres:16-alpine
-    container_name: compliance-relayer-db
+    container_name: fortis-rwa-backend-db
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: compliance_relayer
+      POSTGRES_DB: fortis_rwa_backend
     ports:
       - "5432:5432"
     volumes:
-      - compliance_relayer_pg_data:/var/lib/postgresql/data
+      - fortis_rwa_backend_pg_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -26,16 +26,16 @@ services:
       retries: 5
     restart: unless-stopped
     networks:
-      - compliance_net
+      - fortis_rwa_net
 
   # ---------------------------------------------------------------------------
-  # Solana Compliance Relayer Application
+  # Fortis RWA Backend Application
   # ---------------------------------------------------------------------------
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: compliance-relayer-app
+    container_name: fortis-rwa-backend-app
     depends_on:
       db:
         condition: service_healthy
@@ -44,14 +44,14 @@ services:
     env_file:
       - .env
     environment:
-      - DATABASE_URL=postgres://postgres:postgres@db:5432/compliance_relayer
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/fortis_rwa_backend
     restart: unless-stopped
     networks:
-      - compliance_net
+      - fortis_rwa_net
 
 volumes:
-  compliance_relayer_pg_data:
+  fortis_rwa_backend_pg_data:
     driver: local
 
 networks:
-  compliance_net:
+  fortis_rwa_net:

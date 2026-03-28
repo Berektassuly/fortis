@@ -23,9 +23,9 @@ use crate::domain::{
 #[derive(OpenApi)]
 #[openapi(
     info(
-        title = "Solana Compliance Relayer API",
+        title = "Fortis RWA API",
         version = "0.3.0",
-        description = "API for submitting and tracking compliant Solana transfers",
+        description = "API for submitting, screening, and tracking Fortis RWA transfer workflows",
         contact(
             name = "API Support",
             email = "support@example.com"

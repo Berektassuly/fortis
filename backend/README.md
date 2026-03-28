@@ -1,4 +1,4 @@
-﻿# Solana Compliance Relayer Backend
+# Fortis RWA Backend
 
 This backend now targets the Fortis RWA flow:
 

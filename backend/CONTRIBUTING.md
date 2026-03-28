@@ -1,6 +1,6 @@
-# Contributing to Solana Compliance Relayer
+# Contributing to Fortis RWA
 
-Thank you for your interest in contributing to the Solana Compliance Relayer. This document provides guidelines and requirements for contributing to a project that handles high-security financial operations on the Solana blockchain.
+Thank you for your interest in contributing to Fortis RWA. This document provides guidelines and requirements for contributing to a project that handles high-security financial operations on the Solana blockchain.
 
 ---
 
@@ -20,7 +20,7 @@ Thank you for your interest in contributing to the Solana Compliance Relayer. Th
 
 ### Mission
 
-The Solana Compliance Relayer is a mission-critical bridge between Solana and regulatory compliance protocols. Our priorities, in order, are:
+Fortis RWA is a mission-critical bridge between institutional asset workflows and on-chain compliance enforcement. Our priorities, in order, are:
 
 1. **Security**: Every line of code must assume adversarial conditions
 2. **Auditability**: All transactions must be traceable and verifiable
@@ -68,8 +68,8 @@ This project follows a **multi-repository** architecture:
 
 | Repository | Purpose |
 |------------|---------|
-| `solana-compliance-relayer` | Rust backend (Axum, SQLx, blockchain integration) |
-| `solana-compliance-relayer-frontend` | Next.js frontend with WASM signer |
+| `fortis` | Repository containing the Fortis RWA backend and Anchor programs |
+| `fortis-frontend` | Fortis web application for request creation and signing |
 
 ### Backend Development Environment
 
@@ -83,8 +83,8 @@ This project follows a **multi-repository** architecture:
 
 ```bash
 # Clone the repository
-git clone https://github.com/Berektassuly/solana-compliance-relayer.git
-cd solana-compliance-relayer
+git clone https://github.com/Berektassuly/fortis.git
+cd fortis/backend
 
 # Install sqlx-cli
 cargo install sqlx-cli --no-default-features --features postgres
@@ -123,8 +123,8 @@ bacon clippy
 The frontend lives in a separate repository:
 
 ```bash
-git clone https://github.com/Berektassuly/solana-compliance-relayer-frontend.git
-cd solana-compliance-relayer-frontend
+# Clone the active frontend repository URL provided by the maintainers
+cd <frontend-directory>
 
 # Install dependencies
 pnpm install
@@ -493,8 +493,8 @@ PRs touching these areas will be held for security review before merging.
 
 ## Questions?
 
-- Open a [Discussion](https://github.com/Berektassuly/solana-compliance-relayer/discussions) for general questions
-- Check existing [Issues](https://github.com/Berektassuly/solana-compliance-relayer/issues) before opening new ones
+- Open a [Discussion](https://github.com/Berektassuly/fortis/discussions) for general questions
+- Check existing [Issues](https://github.com/Berektassuly/fortis/issues) before opening new ones
 - Review the [Technical Operations Guide](docs/OPERATIONS.md) for architecture details
 
 Thank you for contributing to a more secure and compliant Solana ecosystem.

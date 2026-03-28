@@ -1,35 +1,8 @@
-//! Solana Compliance Relayer
+//! Fortis RWA backend.
 //!
-//! A production-ready Rust template demonstrating testable architecture through
-//! trait-based abstraction and dependency injection.
-//!
-//! # Features
-//!
-//! - Clean Architecture with layered design
-//! - Trait-based dependency injection for testability
-//! - PostgreSQL with SQLx migrations
-//! - Solana blockchain integration
-//! - OpenAPI documentation with Swagger UI
-//! - Rate limiting
-//! - Graceful degradation with retry queues
-//!
-//! # Architecture
-//!
-//! ```text
-//! ┌─────────────────────────────────────────┐
-//! │              API Layer                  │
-//! │   HTTP handlers, routing, validation    │
-//! ├─────────────────────────────────────────┤
-//! │           Application Layer             │
-//! │    Business logic, orchestration        │
-//! ├─────────────────────────────────────────┤
-//! │             Domain Layer                │
-//! │     Traits, types, errors (pure Rust)   │
-//! ├─────────────────────────────────────────┤
-//! │          Infrastructure Layer           │
-//! │   Database, blockchain, external APIs   │
-//! └─────────────────────────────────────────┘
-//! ```
+//! This crate receives signed Token-2022 transfer requests, performs wallet
+//! screening, queues Fortis `approve_wallet` submissions, and relays the
+//! public transfer once the approval is confirmed.
 
 pub mod api;
 pub mod app;
