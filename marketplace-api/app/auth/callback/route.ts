@@ -1,7 +1,6 @@
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { type NextRequest, NextResponse } from "next/server";
 
-import { syncSupabaseAuthUser } from "@/lib/services/users";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { applyRedirectTarget, getSafeRedirectPath } from "@/lib/supabase/redirects";
 import { createClient } from "@/lib/supabase/server";
@@ -22,42 +21,43 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const supabase = createClient();
-  const redirectUrl = applyRedirectTarget(request.nextUrl.clone(), next);
-  const code = request.nextUrl.searchParams.get("code");
-  const tokenHash = request.nextUrl.searchParams.get("token_hash");
-  const type = request.nextUrl.searchParams.get("type") as EmailOtpType | null;
-  const defaultErrorMessage = "Не удалось подтвердить вход. Попробуйте еще раз.";
+  try {
+    const supabase = createClient();
+    const redirectUrl = applyRedirectTarget(request.nextUrl.clone(), next);
+    const code = request.nextUrl.searchParams.get("code");
+    const tokenHash = request.nextUrl.searchParams.get("token_hash");
+    const type = request.nextUrl.searchParams.get("type") as EmailOtpType | null;
+    const defaultErrorMessage = "Не удалось подтвердить вход. Попробуйте еще раз.";
 
-  if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (code) {
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
 
-    if (error) {
-      loginUrl.searchParams.set("error", error.message);
+      if (error) {
+        loginUrl.searchParams.set("error", error.message);
+        return NextResponse.redirect(loginUrl);
+      }
+    } else if (tokenHash && type) {
+      const { error } = await supabase.auth.verifyOtp({
+        type,
+        token_hash: tokenHash,
+      });
+
+      if (error) {
+        loginUrl.searchParams.set("error", error.message);
+        return NextResponse.redirect(loginUrl);
+      }
+    } else {
+      loginUrl.searchParams.set("error", defaultErrorMessage);
       return NextResponse.redirect(loginUrl);
     }
-  } else if (tokenHash && type) {
-    const { error } = await supabase.auth.verifyOtp({
-      type,
-      token_hash: tokenHash,
-    });
 
-    if (error) {
-      loginUrl.searchParams.set("error", error.message);
-      return NextResponse.redirect(loginUrl);
-    }
-  } else {
-    loginUrl.searchParams.set("error", defaultErrorMessage);
+    return NextResponse.redirect(redirectUrl);
+  } catch (error) {
+    console.error("Auth callback failed", error);
+    loginUrl.searchParams.set(
+      "error",
+      "Подтверждение прошло, но приложение не смогло завершить вход. Попробуйте войти еще раз.",
+    );
     return NextResponse.redirect(loginUrl);
   }
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (user) {
-    await syncSupabaseAuthUser(user);
-  }
-
-  return NextResponse.redirect(redirectUrl);
 }
