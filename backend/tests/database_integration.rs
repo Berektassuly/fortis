@@ -69,7 +69,7 @@ async fn setup_postgres() -> (PostgresClient, testcontainers::ContainerAsync<Gen
 async fn test_create_and_get_transfer_request() {
     let (client, _container) = setup_postgres().await;
 
-    let request = test_request(1, 100_000_000_000, "019470a4-7e7c-7d3e-8f1a-2b3c4d5e6001".to_string());
+    let request = test_request(1, 1, "019470a4-7e7c-7d3e-8f1a-2b3c4d5e6001".to_string());
 
     // Create item
     let created = client
@@ -81,7 +81,7 @@ async fn test_create_and_get_transfer_request() {
     assert_eq!(
         created.transfer_details,
         TransferType::Public {
-            amount: 100_000_000_000
+            amount: 1
         }
     );
     assert_eq!(created.token_mint, Some(test_pubkey(200)));
@@ -106,7 +106,7 @@ async fn test_list_requests_pagination() {
     for i in 0..5 {
         let request = test_request(
             i as u8,
-            (i as u64) * 1_000_000_000,
+            1,
             format!("019470a4-7e7c-7d3e-8f1a-2b3c4d5e60{:02}", i),
         );
         client
@@ -148,7 +148,7 @@ async fn test_list_requests_pagination() {
 async fn test_blockchain_status_updates() {
     let (client, _container) = setup_postgres().await;
 
-    let request = test_request(10, 1_000_000_000, "019470a4-7e7c-7d3e-8f1a-2b3c4d5e6100".to_string());
+    let request = test_request(10, 1, "019470a4-7e7c-7d3e-8f1a-2b3c4d5e6100".to_string());
     let created = client
         .submit_transfer(&request)
         .await
@@ -221,7 +221,7 @@ async fn test_get_pending_blockchain_requests() {
     for i in 0..3 {
         let request = test_request(
             (20 + i) as u8,
-            1_000_000_000,
+            1,
             format!("019470a4-7e7c-7d3e-8f1a-2b3c4d5e62{:02}", i),
         );
         let item = client
@@ -290,7 +290,7 @@ async fn test_get_pending_blockchain_requests() {
 async fn test_increment_retry_count() {
     let (client, _container) = setup_postgres().await;
 
-    let request = test_request(30, 1_000_000_000, "019470a4-7e7c-7d3e-8f1a-2b3c4d5e6300".to_string());
+    let request = test_request(30, 1, "019470a4-7e7c-7d3e-8f1a-2b3c4d5e6300".to_string());
     let created = client
         .submit_transfer(&request)
         .await

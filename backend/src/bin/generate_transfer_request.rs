@@ -11,7 +11,7 @@ use solana_sdk::pubkey::Pubkey;
 const DEFAULT_PRIVATE_KEY_B58: &str =
     "3UNZciMppCp3btFvxwAWfhN1dp99YUYrxDS7F9Gf4mYumUkeYENZMXdmfJRe2zofqvLkvabb9YkbiusuS7uKJbxu";
 const DEFAULT_API_URL: &str = "http://localhost:3000/transfer-requests";
-const DEFAULT_AMOUNT: u64 = 1_000_000_000;
+const DEFAULT_AMOUNT: u64 = 1;
 
 #[derive(Debug)]
 struct Options {

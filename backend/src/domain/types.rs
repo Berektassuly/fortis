@@ -252,7 +252,7 @@ pub enum TransferType {
     /// Standard public transfer with visible amount
     Public {
         /// Amount in atomic units
-        #[schema(example = 1_000_000_000)]
+        #[schema(example = 1)]
         amount: u64,
     },
 }
@@ -1192,11 +1192,11 @@ mod tests {
     fn test_submit_transfer_request_validation() {
         let valid_nonce = "019470a4-7e7c-7d3e-8f1a-2b3c4d5e6f7a".to_string();
 
-        // Valid request (1 SOL in lamports)
+        // Valid request (single whole-asset token)
         let req = SubmitTransferRequest::new(
             "From".to_string(),
             "To".to_string(),
-            1_000_000_000,
+            1,
             "Mint".to_string(),
             "sig".to_string(),
             valid_nonce.clone(),
@@ -1207,7 +1207,7 @@ mod tests {
         let req = SubmitTransferRequest::new(
             "".to_string(),
             "To".to_string(),
-            1_000_000_000,
+            1,
             "Mint".to_string(),
             "sig".to_string(),
             valid_nonce.clone(),
@@ -1218,7 +1218,7 @@ mod tests {
         let req = SubmitTransferRequest::new(
             "From".to_string(),
             "".to_string(),
-            1_000_000_000,
+            1,
             "Mint".to_string(),
             "sig".to_string(),
             valid_nonce.clone(),
@@ -1240,7 +1240,7 @@ mod tests {
         let req = SubmitTransferRequest::new(
             "From".to_string(),
             "To".to_string(),
-            1_000_000_000,
+            1,
             "Mint".to_string(),
             "sig".to_string(),
             "".to_string(),
@@ -1251,7 +1251,7 @@ mod tests {
         let req = SubmitTransferRequest::new(
             "From".to_string(),
             "To".to_string(),
-            1_000_000_000,
+            1,
             "Mint".to_string(),
             "sig".to_string(),
             "short".to_string(),
@@ -1262,7 +1262,7 @@ mod tests {
         let req = SubmitTransferRequest::new(
             "From".to_string(),
             "To".to_string(),
-            1_000_000_000,
+            1,
             "Mint".to_string(),
             "sig".to_string(),
             "019470a4-7e7c-7d3e-8f1a-2b3c4d5e6f7!".to_string(),
@@ -1273,9 +1273,7 @@ mod tests {
         let req = SubmitTransferRequest {
             from_address: "From".to_string(),
             to_address: "To".to_string(),
-            transfer_details: TransferType::Public {
-                amount: 1_000_000_000,
-            },
+            transfer_details: TransferType::Public { amount: 1 },
             token_mint: None,
             signature: "sig".to_string(),
             nonce: valid_nonce.clone(),
@@ -1289,7 +1287,7 @@ mod tests {
             "id_123".to_string(),
             "from_123".to_string(),
             "to_123".to_string(),
-            10_500_000_000, // 10.5 SOL in lamports
+            1,
         );
 
         assert_eq!(req.compliance_status, ComplianceStatus::Pending);
@@ -1300,9 +1298,7 @@ mod tests {
         assert!(req.blockchain_next_retry_at.is_none());
         assert_eq!(
             req.transfer_details,
-            TransferType::Public {
-                amount: 10_500_000_000
-            }
+            TransferType::Public { amount: 1 }
         );
     }
 
@@ -1312,7 +1308,7 @@ mod tests {
             "tr_123".to_string(),
             "from_abc".to_string(),
             "to_xyz".to_string(),
-            5_000_000_000, // 5 SOL in lamports
+            1,
         );
 
         let json = serde_json::to_string(&req).unwrap();
@@ -1323,9 +1319,7 @@ mod tests {
         assert_eq!(deserialized.to_address, "to_xyz");
         assert_eq!(
             deserialized.transfer_details,
-            TransferType::Public {
-                amount: 5_000_000_000
-            }
+            TransferType::Public { amount: 1 }
         );
     }
 

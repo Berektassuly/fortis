@@ -56,7 +56,7 @@ async function main() {
   // ===========================================================================
 
   const mint = Keypair.generate();
-  const decimals = 6;
+  const decimals = 0;
 
   console.log("\n[1/3] Creating Token-2022 Mint with Transfer Hook...");
 
@@ -135,8 +135,8 @@ async function main() {
     program.programId
   );
 
-  const assetName = "Apartment #42, Almaty";
-  const plannedSupply = new anchor.BN(1_000_000);
+  const assetName = "SPV: Luxury Villa, Almaty";
+  const plannedSupply = new anchor.BN(1);
   const documentUri = "ipfs://QmExampleCID123456789";
   const documentHash = Array.from(Buffer.alloc(32, 0xab)); // Placeholder hash
 
@@ -145,7 +145,7 @@ async function main() {
       assetName,
       { realEstate: {} },
       plannedSupply,
-      new anchor.BN(150_000_00),
+      new anchor.BN(2_000_000_00),
       documentUri,
       documentHash
     )

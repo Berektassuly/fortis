@@ -6,12 +6,12 @@
 //   1. Создание Token-2022 Mint с Transfer Hook extension (client-side)
 //   2. Инициализация ExtraAccountMetaList (Anchor CPI)
 //   3. Создание AssetRecord (метаданные актива)
-//   4. Создание token accounts + mint tokens
+//   4. Создание token accounts + mint whole-asset token
 //   5a. Добавление отправителя в compliance whitelist
 //   5b. Добавление получателя в compliance whitelist (dual compliance)
-//   6. Transfer с активным hook (должен пройти)
-//   7. Revoke sender compliance + transfer (должен упасть)
-//   8. Transfer к receiver с revoked compliance (должен упасть)
+//   6. Transfer whole-asset token к recipient (должен пройти)
+//   7. Revoke compliance у wallet, который станет receiver при возврате
+//   8. Попытка transfer whole-asset token обратно к revoked wallet (должен упасть)
 //
 // Mint создаётся CLIENT-SIDE через низкоуровневые SPL Token-2022 инструкции,
 // а не через Anchor CPI. Наш Anchor program — это hook program, вызываемый
@@ -57,7 +57,7 @@ describe("rwa_tokenizer", () => {
 
   // Keypair для нового Token-2022 Mint
   const mint = Keypair.generate();
-  const decimals = 6; // Стандарт для stablecoins/RWA (USDC-like precision)
+  const decimals = 0; // Whole-asset tokenization: exactly 1 token, no fractional units
 
   // Получатель (тестовый кошелёк)
   const recipient = Keypair.generate();
@@ -217,9 +217,9 @@ describe("rwa_tokenizer", () => {
   //
 
   it("Step 3: Initialize RWA Asset Record", async () => {
-    // Пример: токенизация квартиры в Алматы
-    const assetName = "Apartment #42, Almaty";
-    const plannedSupply = new anchor.BN(1_000_000);
+    // Пример: токенизация премиального актива через SPV
+    const assetName = "SPV: Luxury Villa, Almaty";
+    const plannedSupply = new anchor.BN(1);
     const documentUri = "ipfs://QmExampleHash123456789abcdef"; // IPFS CID
     // SHA256 хэш пакета документов (в реальности — hash от PDF/zip)
     const documentHash = Array.from(
@@ -233,8 +233,8 @@ describe("rwa_tokenizer", () => {
       .initializeAsset(
         assetName,
         { realEstate: {} }, // AssetType::RealEstate
-        plannedSupply, // Planned 1M долей
-        new anchor.BN(150_000_00), // $150,000.00 (в центах)
+        plannedSupply, // Planned single whole-asset token
+        new anchor.BN(2_000_000_00), // $2,000,000.00 (в центах)
         documentUri,
         documentHash
       )
@@ -262,7 +262,7 @@ describe("rwa_tokenizer", () => {
   // ===========================================================================
 
   it("Step 4: Create Token Accounts and Mint tokens", async () => {
-    const amount = 1_000 * 10 ** decimals; // 1000 токенов (долей актива)
+    const amount = 1; // Exactly 1 whole-asset token
 
     const transaction = new Transaction().add(
       // ATA для отправителя (wallet)
@@ -283,7 +283,7 @@ describe("rwa_tokenizer", () => {
         TOKEN_2022_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID
       ),
-      // Mint 1000 токенов отправителю
+      // Mint the single whole-asset token to the sender wallet
       createMintToInstruction(
         mint.publicKey,
         sourceTokenAccount,
@@ -301,7 +301,7 @@ describe("rwa_tokenizer", () => {
       { skipPreflight: true }
     );
 
-    console.log(`  Minted ${amount / 10 ** decimals} tokens to sender`);
+    console.log(`  Minted ${amount} whole-asset token to sender`);
     console.log(`  Source ATA: ${sourceTokenAccount.toBase58()}`);
     console.log(`  Destination ATA: ${destinationTokenAccount.toBase58()}`);
     console.log(`  Tx: ${txSig}`);
@@ -365,7 +365,7 @@ describe("rwa_tokenizer", () => {
   });
 
   // ===========================================================================
-  // Step 6: Transfer с активным compliance (ДОЛЖЕН ПРОЙТИ)
+  // Step 6: Transfer whole-asset token с активным compliance (ДОЛЖЕН ПРОЙТИ)
   // ===========================================================================
   //
   // Отправитель прошёл KYC → ComplianceRecord PDA существует и status = Approved.
@@ -375,8 +375,8 @@ describe("rwa_tokenizer", () => {
   // который автоматически разрешает extra accounts из ExtraAccountMetaList PDA.
   //
 
-  it("Step 6: Transfer with active compliance (should succeed)", async () => {
-    const amount = 100 * 10 ** decimals; // 100 токенов
+  it("Step 6: Transfer the whole-asset token to recipient (should succeed)", async () => {
+    const amount = 1;
     const bigIntAmount = BigInt(amount);
 
     // Эта функция автоматически:
@@ -406,20 +406,21 @@ describe("rwa_tokenizer", () => {
       { skipPreflight: true }
     );
 
-    console.log(`  ✓ Transfer of ${amount / 10 ** decimals} tokens SUCCEEDED`);
+    console.log(`  ✓ Transfer of the whole-asset token to recipient SUCCEEDED`);
     console.log(`  Tx: ${txSig}`);
   });
 
   // ===========================================================================
-  // Step 7: Revoke SENDER compliance и попытка transfer (ДОЛЖЕН УПАСТЬ)
+  // Step 7: Revoke wallet compliance before return transfer (ДОЛЖЕН ПРОЙТИ)
   // ===========================================================================
   //
-  // Тестируем sender-side блокировку: отзываем compliance отправителя,
-  // трансфер должен упасть с ComplianceNotApproved.
+  // После Step 6 wallet больше не держит токен, но станет receiver при
+  // обратном transfer. Отзываем compliance wallet, чтобы следующий transfer
+  // recipient -> wallet был заблокирован на receiver-side.
   //
 
-  it("Step 7: Revoke SENDER compliance and attempt transfer (should fail)", async () => {
-    // Отзываем compliance-статус отправителя
+  it("Step 7: Revoke wallet compliance for the return transfer", async () => {
+    // Отзываем compliance-статус wallet
     const revokeTx = await program.methods
       .revokeWallet()
       .accountsPartial({
@@ -429,63 +430,26 @@ describe("rwa_tokenizer", () => {
       })
       .rpc();
 
-    console.log(`  Sender compliance REVOKED. Tx: ${revokeTx}`);
+    console.log(`  Wallet compliance REVOKED. Tx: ${revokeTx}`);
 
     // Verify revocation
     const record = await program.account.complianceRecord.fetch(
       senderCompliancePDA
     );
     expect(record.status).to.deep.equal({ revoked: {} });
-
-    // Попытка перевода — должна провалиться (отправитель revoked)
-    const amount = 50 * 10 ** decimals;
-    const bigIntAmount = BigInt(amount);
-
-    const transferIx =
-      await createTransferCheckedWithTransferHookInstruction(
-        connection,
-        sourceTokenAccount,
-        mint.publicKey,
-        destinationTokenAccount,
-        wallet.publicKey,
-        bigIntAmount,
-        decimals,
-        [],
-        "confirmed",
-        TOKEN_2022_PROGRAM_ID
-      );
-
-    const transaction = new Transaction().add(transferIx);
-
-    try {
-      await sendAndConfirmTransaction(
-        connection,
-        transaction,
-        [wallet.payer],
-        { skipPreflight: true }
-      );
-      expect.fail("Transfer should have been blocked by compliance hook");
-    } catch (err) {
-      console.log(`  ✓ Transfer correctly BLOCKED after SENDER compliance revocation`);
-      console.log(`  Error: ${(err as Error).message.slice(0, 100)}...`);
-    }
   });
 
   // ===========================================================================
-  // Step 8: Revoke RECEIVER compliance и попытка transfer (ДОЛЖЕН УПАСТЬ)
+  // Step 8: Return transfer to revoked wallet receiver (ДОЛЖЕН УПАСТЬ)
   // ===========================================================================
   //
-  // Тестируем receiver-side блокировку: сначала отзываем compliance
-  // получателя, затем пытаемся перевести токены (от recipient
-  // обратно к sender). Recipient теперь является senderом,
-  // а wallet (sender) — receiverом. Sender compliance revoked (Step 7),
-  // поэтому трансфер заблокируется на стороне receiver (wallet).
-  //
-  // Дополнительно тестируем: recipient (как sender) имеет активный
-  // compliance, но wallet (как receiver) — revoked → блокировка.
+  // Recipient теперь держит единственный токен и выступает sender'ом,
+  // а wallet выступает receiver'ом. Recipient compliance остаётся active,
+  // но wallet compliance revoked в Step 7, поэтому hook должен заблокировать
+  // возврат whole-asset token на стороне receiver.
   //
 
-  it("Step 8: Transfer to revoked-compliance receiver (should fail)", async () => {
+  it("Step 8: Transfer the whole-asset token back to revoked wallet (should fail)", async () => {
     // Fund recipient для tx fees (SystemProgram.transfer,
     // а не requestAirdrop, который ненадёжен в localnet)
     const fundTx = new Transaction().add(
@@ -501,13 +465,13 @@ describe("rwa_tokenizer", () => {
       [wallet.payer]
     );
 
-    // Wallet (sender) compliance уже revoked в Step 7.
+    // Wallet compliance уже revoked в Step 7.
     // При обратном transfer (recipient → wallet):
     //   sender = recipient (его compliance активен, Step 5b)
     //   receiver = wallet (его compliance revoked, Step 7)
     // Transfer Hook должен заблокировать на receiver check.
 
-    const amount = 10 * 10 ** decimals;
+    const amount = 1;
     const bigIntAmount = BigInt(amount);
 
     // Recipient → Wallet (обратный перевод)
@@ -535,10 +499,10 @@ describe("rwa_tokenizer", () => {
         { skipPreflight: true }
       );
       expect.fail(
-        "Transfer should have been blocked — receiver (wallet) compliance is revoked"
+        "Return transfer should have been blocked because wallet compliance is revoked"
       );
     } catch (err) {
-      console.log(`  ✓ Transfer correctly BLOCKED: receiver compliance revoked`);
+      console.log(`  ✓ Return transfer correctly BLOCKED: wallet receiver compliance revoked`);
       console.log(`  Error: ${(err as Error).message.slice(0, 100)}...`);
     }
   });

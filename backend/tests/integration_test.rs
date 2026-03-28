@@ -75,7 +75,7 @@ async fn test_submit_transfer_success() {
     let state = create_test_state();
     let router = create_router(state);
 
-    let payload = create_signed_transfer_request(0, 1, 1_000_000_000);
+    let payload = create_signed_transfer_request(0, 1, 1);
     let expected_from = payload.from_address.clone();
 
     let request = Request::builder()
@@ -152,7 +152,7 @@ async fn test_list_requests_with_pagination() {
 
     // Create some items
     for i in 1..5 {
-        let payload = create_signed_transfer_request(0, i, (i as u64) * 1_000_000_000);
+        let payload = create_signed_transfer_request(0, i, 1);
         state.service.submit_transfer(&payload).await.unwrap();
     }
 
@@ -204,7 +204,7 @@ async fn test_get_request_success() {
     ));
 
     // Create an item
-    let payload = create_signed_transfer_request(0, 1, 10_000_000_000);
+    let payload = create_signed_transfer_request(0, 1, 1);
     let created = state.service.submit_transfer(&payload).await.unwrap();
 
     let router = create_router(state);
@@ -246,7 +246,7 @@ async fn test_graceful_degradation_blockchain_failure() {
     let state = Arc::new(AppState::new(Arc::clone(&db) as _, blockchain, compliance));
     let router = create_router(state);
 
-    let payload = create_signed_transfer_request(0, 1, 1_000_000_000);
+    let payload = create_signed_transfer_request(0, 1, 1);
 
     let request = Request::builder()
         .method("POST")
@@ -344,7 +344,7 @@ async fn test_database_failure() {
     let state = Arc::new(AppState::new(db, blockchain, compliance));
     let router = create_router(state);
 
-    let payload = create_signed_transfer_request(0, 1, 1_000_000_000);
+    let payload = create_signed_transfer_request(0, 1, 1);
 
     let request = Request::builder()
         .method("POST")
@@ -420,7 +420,7 @@ async fn test_retry_handler_not_eligible() {
     ));
 
     // Create an item with Submitted status (not eligible for retry)
-    let payload = create_signed_transfer_request(0, 1, 1_000_000_000);
+    let payload = create_signed_transfer_request(0, 1, 1);
     let created = state.service.submit_transfer(&payload).await.unwrap();
 
     let router = create_router(state);

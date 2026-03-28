@@ -72,7 +72,7 @@ async fn test_full_transfer_lifecycle_flow() {
     let router = create_router(state);
 
     // 1. POST - Create Transfer Request with valid signature
-    let create_payload = create_signed_transfer_request(1, 50_000_000_000);
+    let create_payload = create_signed_transfer_request(1, 1);
     let expected_from = create_payload.from_address.clone();
     let expected_to = create_payload.to_address.clone();
 
@@ -98,7 +98,7 @@ async fn test_full_transfer_lifecycle_flow() {
     assert_eq!(
         created_request.transfer_details,
         TransferType::Public {
-            amount: 50_000_000_000
+            amount: 1
         }
     );
 
