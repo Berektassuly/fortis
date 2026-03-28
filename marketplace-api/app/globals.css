@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 230 25% 7%;
+    --foreground: 210 40% 95%;
+
+    --card: 230 25% 11%;
+    --card-foreground: 210 40% 95%;
+
+    --popover: 230 25% 11%;
+    --popover-foreground: 210 40% 95%;
+
+    --primary: 250 90% 65%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 200 100% 50%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 230 20% 18%;
+    --muted-foreground: 215 20% 55%;
+
+    --accent: 280 80% 60%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 230 20% 20%;
+    --input: 230 20% 18%;
+    --ring: 250 90% 65%;
+
+    --radius: 1rem;
+
+    --neon-blue: 200 100% 50%;
+    --neon-purple: 250 90% 65%;
+    --neon-pink: 320 90% 60%;
+    --glass: 230 25% 14%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(circle at top, hsl(var(--neon-purple) / 0.1), transparent 30%),
+      linear-gradient(180deg, hsl(var(--background)), hsl(230 25% 5%));
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-card/60 backdrop-blur-xl border border-border/50;
+  }
+
+  .neon-glow {
+    box-shadow:
+      0 0 15px hsl(var(--neon-purple) / 0.4),
+      0 0 30px hsl(var(--neon-purple) / 0.15);
+  }
+
+  .neon-glow-blue {
+    box-shadow:
+      0 0 15px hsl(var(--neon-blue) / 0.4),
+      0 0 30px hsl(var(--neon-blue) / 0.15);
+  }
+
+  .neon-text {
+    text-shadow:
+      0 0 10px hsl(var(--neon-purple) / 0.6),
+      0 0 20px hsl(var(--neon-purple) / 0.3);
+  }
+
+  .neon-text-blue {
+    text-shadow:
+      0 0 10px hsl(var(--neon-blue) / 0.6),
+      0 0 20px hsl(var(--neon-blue) / 0.3);
+  }
+}
