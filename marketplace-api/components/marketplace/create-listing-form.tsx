@@ -5,15 +5,71 @@ import { useRouter } from "next/navigation";
 import { Loader2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
-const cities = ["Алматы", "Астана", "Шымкент", "Караганда", "Актау", "Павлодар"];
+import { createClient } from "@/lib/supabase/client";
+import { getListingsBucket } from "@/lib/supabase/config";
 
-function fileToDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-    reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"));
-    reader.readAsDataURL(file);
+const cities = ["Алматы", "Астана", "Шымкент", "Караганда", "Актау", "Павлодар"];
+const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
+
+function getFileExtension(file: File) {
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  return extension || "jpg";
+}
+
+function getUploadErrorMessage(message: string) {
+  const normalizedMessage = message.toLowerCase();
+
+  if (normalizedMessage.includes("bucket") && normalizedMessage.includes("not found")) {
+    return "Storage bucket listings не найден. Создайте его в Supabase Dashboard.";
+  }
+
+  if (normalizedMessage.includes("row-level security")) {
+    return "Политики Supabase Storage блокируют загрузку. Разрешите authenticated-пользователям загружать файлы в bucket listings.";
+  }
+
+  return message;
+}
+
+async function uploadListingImage(file: File) {
+  const supabase = createClient();
+  const bucket = getListingsBucket();
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    throw new Error("Сессия истекла. Войдите в аккаунт снова.");
+  }
+
+  const objectPath = `${user.id}/${crypto.randomUUID()}.${getFileExtension(file)}`;
+  const { error: uploadError } = await supabase.storage.from(bucket).upload(objectPath, file, {
+    cacheControl: "3600",
+    contentType: file.type || undefined,
+    upsert: false,
   });
+
+  if (uploadError) {
+    throw new Error(getUploadErrorMessage(uploadError.message));
+  }
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from(bucket).getPublicUrl(objectPath);
+
+  return {
+    objectPath,
+    publicUrl,
+  };
+}
+
+async function removeUploadedImage(objectPath: string) {
+  try {
+    const supabase = createClient();
+    await supabase.storage.from(getListingsBucket()).remove([objectPath]);
+  } catch (error) {
+    console.error("Failed to remove uploaded listing image", error);
+  }
 }
 
 export default function CreateListingForm() {
@@ -49,16 +105,30 @@ export default function CreateListingForm() {
     event.preventDefault();
 
     if (!title.trim() || !price.trim()) {
-      toast.error("Заполните заголовок и цену");
+      toast.error("Заполните заголовок и цену.");
       return;
     }
+
+    if (photoFile && !photoFile.type.startsWith("image/")) {
+      toast.error("Можно загружать только изображения.");
+      return;
+    }
+
+    if (photoFile && photoFile.size > MAX_IMAGE_SIZE_BYTES) {
+      toast.error("Фото должно быть не больше 5 МБ.");
+      return;
+    }
+
+    let uploadedImagePath: string | null = null;
 
     try {
       setIsSubmitting(true);
 
       let photo: string | null = null;
       if (photoFile) {
-        photo = await fileToDataUrl(photoFile);
+        const upload = await uploadListingImage(photoFile);
+        uploadedImagePath = upload.objectPath;
+        photo = upload.publicUrl;
       }
 
       const response = await fetch("/api/listings", {
@@ -77,19 +147,35 @@ export default function CreateListingForm() {
       });
 
       if (!response.ok) {
+        if (uploadedImagePath) {
+          await removeUploadedImage(uploadedImagePath);
+        }
+
         const body = (await response.json().catch(() => null)) as { error?: string } | null;
-        toast.error(body?.error ?? "Не удалось опубликовать объявление");
+
+        if (response.status === 401) {
+          toast.error(body?.error ?? "Сессия истекла. Войдите снова.");
+          router.push("/login?next=/create");
+          router.refresh();
+          return;
+        }
+
+        toast.error(body?.error ?? "Не удалось опубликовать объявление.");
         return;
       }
 
-      toast.success("Объявление опубликовано");
+      toast.success("Объявление опубликовано.");
       startTransition(() => {
         router.push("/");
         router.refresh();
       });
     } catch (error) {
+      if (uploadedImagePath) {
+        await removeUploadedImage(uploadedImagePath);
+      }
+
       console.error(error);
-      toast.error("Не удалось опубликовать объявление");
+      toast.error(error instanceof Error ? error.message : "Не удалось опубликовать объявление.");
     } finally {
       setIsSubmitting(false);
     }
@@ -132,7 +218,7 @@ export default function CreateListingForm() {
       <label className="glass flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border/50 p-6 transition-all hover:border-primary/50">
         <Upload className="h-6 w-6 text-muted-foreground" />
         <span className="text-sm text-muted-foreground">
-          {previewUrl ? "Фото загружено" : "Загрузить фото"}
+          {previewUrl ? "Фото готово к загрузке" : "Загрузить фото"}
         </span>
         <input
           type="file"

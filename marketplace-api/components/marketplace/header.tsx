@@ -1,7 +1,15 @@
 import Link from "next/link";
-import { Home, Plus, Search } from "lucide-react";
+import { Home, LogIn, Plus, Search } from "lucide-react";
 
-export default function Header() {
+import { createClient } from "@/lib/supabase/server";
+
+export default async function Header() {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const createHref = user ? "/create" : "/login?next=/create";
+
   return (
     <header className="glass sticky top-0 z-50 border-b border-border/30">
       <div className="container mx-auto flex items-center justify-between px-4 py-3">
@@ -20,13 +28,35 @@ export default function Header() {
           />
         </div>
 
-        <Link
-          href="/create"
-          className="flex items-center gap-2 rounded-2xl bg-primary/90 px-5 py-2.5 text-sm font-medium text-primary-foreground transition-all duration-300 hover:bg-primary hover:neon-glow"
-        >
-          <Plus className="h-4 w-4" />
-          Подать объявление
-        </Link>
+        <div className="flex items-center gap-2">
+          {user ? (
+            <form action="/auth/sign-out" method="post">
+              <button
+                type="submit"
+                className="glass flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm text-foreground transition-colors hover:border-primary/40 hover:text-primary"
+              >
+                <span className="hidden max-w-40 truncate md:inline">{user.email}</span>
+                <span>Выйти</span>
+              </button>
+            </form>
+          ) : (
+            <Link
+              href="/login"
+              className="glass flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-primary/40 hover:text-primary"
+            >
+              <LogIn className="h-4 w-4" />
+              Войти
+            </Link>
+          )}
+
+          <Link
+            href={createHref}
+            className="flex items-center gap-2 rounded-2xl bg-primary/90 px-5 py-2.5 text-sm font-medium text-primary-foreground transition-all duration-300 hover:bg-primary hover:neon-glow"
+          >
+            <Plus className="h-4 w-4" />
+            Подать объявление
+          </Link>
+        </div>
       </div>
     </header>
   );
