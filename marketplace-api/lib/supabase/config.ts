@@ -1,21 +1,41 @@
 const DEFAULT_LISTINGS_BUCKET = "listings";
 
-function requirePublicEnv(name: "NEXT_PUBLIC_SUPABASE_URL" | "NEXT_PUBLIC_SUPABASE_ANON_KEY") {
-  const value = process.env[name];
+export function getOptionalSupabaseConfig() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
 
-  if (!value) {
-    throw new Error(`${name} is required for Supabase auth and storage.`);
+  if (!url || !anonKey) {
+    return null;
   }
 
-  return value;
+  return {
+    anonKey,
+    url,
+  };
+}
+
+export function isSupabaseConfigured() {
+  return getOptionalSupabaseConfig() !== null;
+}
+
+function requirePublicConfig() {
+  const config = getOptionalSupabaseConfig();
+
+  if (!config) {
+    throw new Error(
+      "Supabase auth is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.",
+    );
+  }
+
+  return config;
 }
 
 export function getSupabaseUrl() {
-  return requirePublicEnv("NEXT_PUBLIC_SUPABASE_URL");
+  return requirePublicConfig().url;
 }
 
 export function getSupabaseAnonKey() {
-  return requirePublicEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  return requirePublicConfig().anonKey;
 }
 
 export function getListingsBucket() {

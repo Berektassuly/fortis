@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 
-import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/config";
+import { getOptionalSupabaseConfig } from "@/lib/supabase/config";
 import { applyRedirectTarget, getSafeRedirectPath } from "@/lib/supabase/redirects";
 
 const PRIVATE_PATHS = ["/create"];
@@ -12,11 +12,34 @@ function matchesPath(pathname: string, candidates: string[]) {
 }
 
 export async function updateSession(request: NextRequest) {
+  const supabaseConfig = getOptionalSupabaseConfig();
+  const pathname = request.nextUrl.pathname;
+  const isPrivatePath = matchesPath(pathname, PRIVATE_PATHS);
+
+  if (!supabaseConfig) {
+    if (!isPrivatePath) {
+      return NextResponse.next({
+        request,
+      });
+    }
+
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = "/login";
+    redirectUrl.search = "";
+    redirectUrl.searchParams.set("next", getSafeRedirectPath(pathname, "/create"));
+    redirectUrl.searchParams.set(
+      "error",
+      "Supabase Auth не настроен для этого деплоя. Добавьте NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY в Vercel.",
+    );
+
+    return NextResponse.redirect(redirectUrl);
+  }
+
   let response = NextResponse.next({
     request,
   });
 
-  const supabase = createServerClient(getSupabaseUrl(), getSupabaseAnonKey(), {
+  const supabase = createServerClient(supabaseConfig.url, supabaseConfig.anonKey, {
     cookies: {
       getAll() {
         return request.cookies.getAll();
@@ -37,9 +60,7 @@ export async function updateSession(request: NextRequest) {
 
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
-  const pathname = request.nextUrl.pathname;
   const isAuthenticated = Boolean(claims?.sub);
-  const isPrivatePath = matchesPath(pathname, PRIVATE_PATHS);
   const isAuthPath = matchesPath(pathname, AUTH_PATHS);
 
   if (!isAuthenticated && isPrivatePath) {

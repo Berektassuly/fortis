@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import AuthForm from "@/components/auth/auth-form";
 import Header from "@/components/marketplace/header";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getSafeRedirectPath } from "@/lib/supabase/redirects";
 import { createClient } from "@/lib/supabase/server";
 
@@ -16,14 +17,21 @@ interface LoginPageProps {
 }
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const supabase = createClient();
   const nextPath = getSafeRedirectPath(searchParams?.next, "/");
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabaseConfigured = isSupabaseConfigured();
+  const configError = !supabaseConfigured
+    ? "Supabase Auth не настроен для этого деплоя. Добавьте NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY в Vercel."
+    : undefined;
 
-  if (user) {
-    redirect(nextPath);
+  if (supabaseConfigured) {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      redirect(nextPath);
+    }
   }
 
   return (
@@ -64,8 +72,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             nextPath={nextPath}
             initialEmail={searchParams?.email}
             initialMode={searchParams?.mode === "signup" ? "signup" : "login"}
-            initialError={searchParams?.error}
+            initialError={searchParams?.error ?? configError}
             initialMessage={searchParams?.message}
+            disabledReason={configError}
           />
         </div>
       </main>

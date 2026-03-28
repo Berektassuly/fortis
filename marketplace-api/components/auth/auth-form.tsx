@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/client";
 type AuthMode = "login" | "signup";
 
 interface AuthFormProps {
+  disabledReason?: string;
   initialEmail?: string;
   initialError?: string;
   initialMessage?: string;
@@ -29,6 +30,7 @@ async function syncCurrentUser() {
 }
 
 export default function AuthForm({
+  disabledReason,
   initialEmail,
   initialError,
   initialMessage,
@@ -53,6 +55,11 @@ export default function AuthForm({
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (disabledReason) {
+      toast.error(disabledReason);
+      return;
+    }
 
     if (!email.trim() || !password.trim()) {
       toast.error("Введите email и пароль.");
@@ -136,6 +143,12 @@ export default function AuthForm({
         </p>
       </div>
 
+      {disabledReason ? (
+        <div className="mb-4 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm leading-6 text-foreground">
+          {disabledReason}
+        </div>
+      ) : null}
+
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
           <label htmlFor="email" className="text-sm font-medium text-foreground">
@@ -149,6 +162,7 @@ export default function AuthForm({
             className={inputClass}
             placeholder="you@example.com"
             autoComplete="email"
+            disabled={Boolean(disabledReason)}
             required
           />
         </div>
@@ -166,13 +180,14 @@ export default function AuthForm({
             placeholder="Минимум 6 символов"
             autoComplete={mode === "login" ? "current-password" : "new-password"}
             minLength={6}
+            disabled={Boolean(disabledReason)}
             required
           />
         </div>
 
         <button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || Boolean(disabledReason)}
           className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3 font-medium text-primary-foreground transition-all duration-300 hover:bg-primary/85 disabled:opacity-50"
         >
           {isSubmitting ? (

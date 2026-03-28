@@ -1,14 +1,31 @@
 import Link from "next/link";
 import { Home, LogIn, Plus, Search } from "lucide-react";
 
+import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function Header() {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const createHref = user ? "/create" : "/login?next=/create";
+  const supabaseConfigured = isSupabaseConfigured();
+  let userEmail: string | undefined;
+
+  if (supabaseConfigured) {
+    try {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      userEmail = user?.email;
+    } catch (error) {
+      console.error("Failed to resolve Supabase user in header", error);
+    }
+  }
+
+  const createHref = supabaseConfigured
+    ? userEmail
+      ? "/create"
+      : "/login?next=/create"
+    : "/login?error=Supabase%20Auth%20is%20not%20configured%20for%20this%20deployment.";
 
   return (
     <header className="glass sticky top-0 z-50 border-b border-border/30">
@@ -29,13 +46,17 @@ export default async function Header() {
         </div>
 
         <div className="flex items-center gap-2">
-          {user ? (
+          {!supabaseConfigured ? (
+            <span className="glass rounded-2xl px-4 py-2.5 text-sm text-muted-foreground">
+              Auth unavailable
+            </span>
+          ) : userEmail ? (
             <form action="/auth/sign-out" method="post">
               <button
                 type="submit"
                 className="glass flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm text-foreground transition-colors hover:border-primary/40 hover:text-primary"
               >
-                <span className="hidden max-w-40 truncate md:inline">{user.email}</span>
+                <span className="hidden max-w-40 truncate md:inline">{userEmail}</span>
                 <span>Выйти</span>
               </button>
             </form>

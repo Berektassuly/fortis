@@ -8,7 +8,13 @@ import { toMarketplaceListing } from "@/types/listing";
 export default async function HomePage() {
   noStore();
 
-  const listings = (await getListings()).map(toMarketplaceListing);
+  let listings = [] as ReturnType<typeof toMarketplaceListing>[];
+
+  try {
+    listings = (await getListings()).map(toMarketplaceListing);
+  } catch (error) {
+    console.error("Failed to load listings for the home page", error);
+  }
 
   return (
     <div className="min-h-screen">
