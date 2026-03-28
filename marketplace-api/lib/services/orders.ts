@@ -1,3 +1,5 @@
+import { Prisma } from "@prisma/client";
+
 import { prisma } from "@/lib/prisma";
 import { toOrderDto, toOrderResult, type OrderDto, type OrderResult } from "@/lib/dto/order";
 import { dispatchOrderIntentToFortis } from "@/lib/services/fortis-client";
@@ -27,13 +29,45 @@ export async function createOrder(input: unknown): Promise<OrderResult> {
     throw new ServiceError(404, `User ${data.userId} was not found.`);
   }
 
-  const order = await prisma.order.create({
-    data: {
-      listingId: listing.id,
-      userId: user.id,
-      status: "Created",
-    },
-  });
+  let order: Awaited<ReturnType<typeof prisma.order.create>> | null = null;
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const highestOrder = await prisma.order.findFirst({
+      select: {
+        id: true,
+      },
+      orderBy: {
+        id: "desc",
+      },
+    });
+
+    try {
+      order = await prisma.order.create({
+        data: {
+          id: (highestOrder?.id ?? 0) + 1,
+          listingId: listing.id,
+          userId: user.id,
+          status: "Created",
+        },
+      });
+      break;
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002" &&
+        Array.isArray(error.meta?.target) &&
+        error.meta.target.includes("id")
+      ) {
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  if (!order) {
+    throw new ServiceError(500, "Failed to create order after multiple retries.");
+  }
 
   try {
     const bridgeResult = await dispatchOrderIntentToFortis({
