@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
+import { PublicKey } from "@solana/web3.js";
 
 import { prisma } from "@/lib/prisma";
 import { ServiceError } from "@/lib/services/service-error";
@@ -86,4 +87,54 @@ export async function syncSupabaseAuthUser(supabaseUser: Pick<SupabaseUser, "id"
   }
 
   throw new ServiceError(500, "Failed to create a marketplace user record after multiple retries.");
+}
+
+function normalizeWalletAddress(walletAddress: string) {
+  const value = walletAddress.trim();
+
+  if (!value) {
+    throw new ServiceError(400, "Connect a Solana wallet before continuing.");
+  }
+
+  try {
+    return new PublicKey(value).toBase58();
+  } catch (error) {
+    throw new ServiceError(
+      400,
+      error instanceof Error ? error.message : "Invalid Solana wallet address.",
+    );
+  }
+}
+
+export async function bindSolanaWalletAddress(
+  supabaseUser: Pick<SupabaseUser, "id" | "email">,
+  walletAddress: string,
+) {
+  const prismaUser = await syncSupabaseAuthUser(supabaseUser);
+  const normalizedWalletAddress = normalizeWalletAddress(walletAddress);
+
+  try {
+    return await prisma.user.update({
+      where: {
+        id: prismaUser.id,
+      },
+      data: {
+        solanaWalletAddress: normalizedWalletAddress,
+      },
+    });
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002" &&
+      Array.isArray(error.meta?.target) &&
+      error.meta.target.includes("solana_wallet_address")
+    ) {
+      throw new ServiceError(
+        409,
+        "This wallet is already linked to another Fortis account. Disconnect it there first.",
+      );
+    }
+
+    throw error;
+  }
 }

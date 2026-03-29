@@ -4,6 +4,7 @@
 //! Real blockchain functionality is enabled with the `real-blockchain` feature.
 
 use async_trait::async_trait;
+use borsh::BorshSerialize;
 use ed25519_dalek::{Signer, SigningKey};
 use reqwest::Client;
 use secrecy::{ExposeSecret, SecretString};
@@ -28,13 +29,20 @@ use spl_associated_token_account::{
     get_associated_token_address_with_program_id,
     instruction::create_associated_token_account_idempotent,
 };
-
-use spl_token_interface::instruction as token_instruction;
+use spl_token_2022_interface::{
+    extension::{ExtensionType, transfer_hook::instruction as transfer_hook_instruction},
+    instruction as token2022_instruction,
+    pod::PodMint,
+};
+use spl_transfer_hook_interface::{
+    get_extra_account_metas_address,
+    offchain::add_extra_account_metas_for_execute,
+};
 
 use crate::domain::types::{TransferType, fortis_rwa_program_pubkey};
 use crate::domain::{
-    AppError, BlockchainClient, BlockchainError, ComplianceLevel, TransferRequest,
-    WalletApprovalSubmission,
+    AppError, AssetType, BlockchainClient, BlockchainError, ComplianceLevel,
+    TokenizeListingRequest, TokenizeListingResult, TransferRequest, WalletApprovalSubmission,
 };
 
 /// Configuration for the RPC client
@@ -221,6 +229,37 @@ struct BlockhashResponse {
 #[derive(Debug, Deserialize)]
 struct BlockhashResult {
     value: BlockhashResponse,
+}
+
+#[derive(BorshSerialize)]
+struct InitializeAssetArgs {
+    name: String,
+    asset_type: AssetTypeBorsh,
+    planned_supply: u64,
+    valuation_usd: u64,
+    document_uri: String,
+    document_hash: [u8; 32],
+}
+
+#[derive(BorshSerialize, Clone, Copy)]
+enum AssetTypeBorsh {
+    RealEstate,
+    Bond,
+    Commodity,
+    Equity,
+    Other,
+}
+
+impl From<AssetType> for AssetTypeBorsh {
+    fn from(value: AssetType) -> Self {
+        match value {
+            AssetType::RealEstate => Self::RealEstate,
+            AssetType::Bond => Self::Bond,
+            AssetType::Commodity => Self::Commodity,
+            AssetType::Equity => Self::Equity,
+            AssetType::Other => Self::Other,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -747,59 +786,71 @@ impl RpcBlockchainClient {
             Ok(signature.to_string())
         }
     }
-}
 
-#[async_trait]
-impl BlockchainClient for RpcBlockchainClient {
-    #[instrument(skip(self))]
-    async fn health_check(&self) -> Result<(), AppError> {
-        let _: u64 = self.rpc_call("getSlot", Vec::<()>::new()).await?;
-        Ok(())
+    fn require_sdk_and_keypair(&self) -> Result<(&SolanaRpcClient, &Keypair), AppError> {
+        let sdk_client = self.sdk_client.as_ref().ok_or_else(|| {
+            AppError::Blockchain(BlockchainError::Connection(
+                "No SDK client available".to_string(),
+            ))
+        })?;
+        let keypair = self.keypair.as_ref().ok_or_else(|| {
+            AppError::Blockchain(BlockchainError::WalletError(
+                "No keypair available for signing".to_string(),
+            ))
+        })?;
+        Ok((sdk_client, keypair))
     }
 
-    #[instrument(skip(self))]
-    async fn submit_transaction(
-        &self,
-        request: &TransferRequest,
-    ) -> Result<(String, String), AppError> {
-        info!(id = %request.id, "Submitting transaction for request");
-
-        // Check if we have SDK client (for real transactions)
-        if self.sdk_client.is_none() || self.keypair.is_none() {
-            // Mock implementation for testing (when SDK client not available)
-            debug!("Using mock implementation for submit_transaction");
-            let signature = self.sign(request.id.as_bytes());
-            return Ok((
-                format!("tx_{}", &signature[..16]),
-                "mock_blockhash".to_string(),
-            ));
-        }
-
-        match &request.transfer_details {
-            TransferType::Public { amount } => {
-                self.transfer_token(
-                    &request.to_address,
-                    request.required_token_mint()?,
-                    *amount,
-                )
-                .await
-            }
-        }
+    fn anchor_discriminator(name: &str) -> [u8; 8] {
+        let digest = Sha256::digest(name.as_bytes());
+        let mut discriminator = [0u8; 8];
+        discriminator.copy_from_slice(&digest[..8]);
+        discriminator
     }
 
-    #[instrument(skip(self))]
-    async fn approve_wallet(
+    fn anchor_instruction_data_with_args<T: BorshSerialize>(
+        name: &str,
+        args: &T,
+    ) -> Result<Vec<u8>, AppError> {
+        let mut data = Self::anchor_discriminator(name).to_vec();
+        let serialized = borsh::to_vec(args).map_err(|error| {
+            AppError::Serialization(format!(
+                "Failed to serialize Anchor instruction {}: {}",
+                name, error
+            ))
+        })?;
+        data.extend(serialized);
+        Ok(data)
+    }
+
+    fn anchor_instruction_data(name: &str) -> Vec<u8> {
+        Self::anchor_discriminator(name).to_vec()
+    }
+
+    fn read_mint_decimals(mint_data: &[u8]) -> Result<u8, AppError> {
+        const DECIMALS_OFFSET: usize = 44;
+        const MIN_MINT_SIZE: usize = 82;
+
+        if mint_data.len() < MIN_MINT_SIZE {
+            return Err(AppError::Blockchain(BlockchainError::TransactionFailed(
+                format!(
+                    "Mint account data too small: {} bytes, expected at least {}",
+                    mint_data.len(),
+                    MIN_MINT_SIZE
+                ),
+            )));
+        }
+
+        Ok(mint_data[DECIMALS_OFFSET])
+    }
+
+    async fn build_wallet_approval_instruction(
         &self,
         token_mint: &str,
         wallet_address: &str,
         compliance_level: ComplianceLevel,
-    ) -> Result<WalletApprovalSubmission, AppError> {
-        info!(
-            wallet = %wallet_address,
-            token_mint = %token_mint,
-            compliance_level = %compliance_level,
-            "Submitting Fortis RWA wallet approval"
-        );
+    ) -> Result<(String, String, Option<Instruction>), AppError> {
+        let (sdk_client, keypair) = self.require_sdk_and_keypair()?;
 
         let mint_pubkey = token_mint.parse::<Pubkey>().map_err(|e| {
             AppError::Validation(crate::domain::ValidationError::InvalidField {
@@ -824,35 +875,6 @@ impl BlockchainClient for RpcBlockchainClient {
         let compliance_record_pda_str = compliance_record_pda.to_string();
         let system_program_id =
             Pubkey::from_str("11111111111111111111111111111111").expect("valid system program id");
-
-        if self.sdk_client.is_none() || self.keypair.is_none() {
-            let mock_signature = self.sign(
-                format!(
-                    "approve-wallet:{}:{}:{}",
-                    token_mint,
-                    wallet_address,
-                    compliance_level.as_str()
-                )
-                .as_bytes(),
-            );
-
-            return Ok(WalletApprovalSubmission {
-                asset_record_pda: asset_record_pda_str,
-                compliance_record_pda: compliance_record_pda_str,
-                tx_signature: Some(format!("wallet_approval_{}", &mock_signature[..16])),
-            });
-        }
-
-        let sdk_client = self.sdk_client.as_ref().ok_or_else(|| {
-            AppError::Blockchain(BlockchainError::Connection(
-                "No SDK client available".to_string(),
-            ))
-        })?;
-        let keypair = self.keypair.as_ref().ok_or_else(|| {
-            AppError::Blockchain(BlockchainError::WalletError(
-                "No keypair available for signing".to_string(),
-            ))
-        })?;
 
         let mint_account = sdk_client.get_account(&mint_pubkey).await.map_err(|e| {
             AppError::Blockchain(BlockchainError::TransactionFailed(format!(
@@ -898,24 +920,10 @@ impl BlockchainClient for RpcBlockchainClient {
                 )));
             }
 
-            info!(
-                wallet = %wallet_address,
-                token_mint = %token_mint,
-                compliance_record_pda = %compliance_record_pda,
-                "Wallet approval already exists on-chain; skipping duplicate submission"
-            );
-
-            return Ok(WalletApprovalSubmission {
-                asset_record_pda: asset_record_pda_str,
-                compliance_record_pda: compliance_record_pda_str,
-                tx_signature: None,
-            });
+            return Ok((asset_record_pda_str, compliance_record_pda_str, None));
         }
 
-        let priority_fee = self.get_priority_fee(None).await;
-        let mut instruction_data = Vec::with_capacity(9);
-        let discriminator = Sha256::digest(b"global:approve_wallet");
-        instruction_data.extend_from_slice(&discriminator[..8]);
+        let mut instruction_data = Self::anchor_instruction_data("global:approve_wallet");
         instruction_data.push(match compliance_level {
             ComplianceLevel::Basic => 0,
             ComplianceLevel::Standard => 1,
@@ -935,6 +943,311 @@ impl BlockchainClient for RpcBlockchainClient {
             data: instruction_data,
         };
 
+        Ok((
+            asset_record_pda_str,
+            compliance_record_pda_str,
+            Some(approve_wallet_ix),
+        ))
+    }
+
+    async fn transfer_token_internal(
+        &self,
+        to_address: &str,
+        token_mint: &str,
+        amount: u64,
+        source_owner_address: Option<&str>,
+    ) -> Result<(String, String), AppError> {
+        info!(
+            to = %to_address,
+            token_mint = %token_mint,
+            amount = %amount,
+            source_owner = ?source_owner_address,
+            "Transferring Token-2022 asset"
+        );
+
+        if amount == 0 {
+            return Err(AppError::Blockchain(BlockchainError::TransactionFailed(
+                "Transfer amount must be greater than 0".to_string(),
+            )));
+        }
+
+        let (sdk_client, keypair) = self.require_sdk_and_keypair()?;
+        let to_pubkey = to_address.parse::<Pubkey>().map_err(|e| {
+            AppError::Blockchain(BlockchainError::InvalidSignature(format!(
+                "Invalid destination address: {}",
+                e
+            )))
+        })?;
+        let mint_pubkey = token_mint.parse::<Pubkey>().map_err(|e| {
+            AppError::Blockchain(BlockchainError::InvalidSignature(format!(
+                "Invalid token mint address: {}",
+                e
+            )))
+        })?;
+        let source_owner_pubkey = match source_owner_address {
+            Some(address) => address.parse::<Pubkey>().map_err(|e| {
+                AppError::Validation(crate::domain::ValidationError::InvalidField {
+                    field: "source_owner_address".to_string(),
+                    message: format!("Invalid base58 pubkey: {}", e),
+                })
+            })?,
+            None => keypair.pubkey(),
+        };
+
+        let mint_account = sdk_client.get_account(&mint_pubkey).await.map_err(|e| {
+            AppError::Blockchain(BlockchainError::TransactionFailed(format!(
+                "Failed to fetch mint account: {}",
+                e
+            )))
+        })?;
+        let token_program_id = mint_account.owner;
+        if token_program_id != spl_token_2022::id() {
+            return Err(AppError::Blockchain(BlockchainError::TransactionFailed(
+                format!(
+                    "Fortis RWA transfers require a Token-2022 mint. Expected owner {}, found {}",
+                    spl_token_2022::id(),
+                    token_program_id
+                ),
+            )));
+        }
+
+        let decimals = Self::read_mint_decimals(&mint_account.data)?;
+        let source_ata = get_associated_token_address_with_program_id(
+            &source_owner_pubkey,
+            &mint_pubkey,
+            &token_program_id,
+        );
+        let destination_ata = get_associated_token_address_with_program_id(
+            &to_pubkey,
+            &mint_pubkey,
+            &token_program_id,
+        );
+
+        let source_account = sdk_client.get_account(&source_ata).await.map_err(|e| {
+            AppError::Blockchain(BlockchainError::TransactionFailed(format!(
+                "Source token account does not exist or cannot be fetched for owner {} and mint {}: {}",
+                source_owner_pubkey, token_mint, e
+            )))
+        })?;
+        if source_account.owner != token_program_id {
+            return Err(AppError::Blockchain(BlockchainError::TransactionFailed(
+                format!(
+                    "Source token account is not owned by the token program. Expected owner: {}, actual owner: {}",
+                    token_program_id, source_account.owner
+                ),
+            )));
+        }
+
+        const TOKEN_ACCOUNT_AMOUNT_OFFSET: usize = 64;
+        if source_account.data.len() < TOKEN_ACCOUNT_AMOUNT_OFFSET + 8 {
+            return Err(AppError::Blockchain(BlockchainError::TransactionFailed(
+                "Source token account data is too small to read balance".to_string(),
+            )));
+        }
+        let balance_bytes: [u8; 8] = source_account.data
+            [TOKEN_ACCOUNT_AMOUNT_OFFSET..TOKEN_ACCOUNT_AMOUNT_OFFSET + 8]
+            .try_into()
+            .expect("token account balance slice has fixed length");
+        let balance = u64::from_le_bytes(balance_bytes);
+        if balance < amount {
+            return Err(AppError::Blockchain(BlockchainError::InsufficientFunds));
+        }
+
+        let priority_fee = self.get_priority_fee(None).await;
+        let mut instructions: Vec<Instruction> =
+            vec![ComputeBudgetInstruction::set_compute_unit_price(priority_fee)];
+
+        if sdk_client.get_account(&destination_ata).await.is_err() {
+            instructions.push(create_associated_token_account_idempotent(
+                &keypair.pubkey(),
+                &to_pubkey,
+                &mint_pubkey,
+                &token_program_id,
+            ));
+        }
+
+        let mut transfer_ix = token2022_instruction::transfer_checked(
+            &token_program_id,
+            &source_ata,
+            &mint_pubkey,
+            &destination_ata,
+            &keypair.pubkey(),
+            &[],
+            amount,
+            decimals,
+        )
+        .map_err(|e| {
+            AppError::Blockchain(BlockchainError::TransactionFailed(format!(
+                "Failed to create transfer_checked instruction: {}",
+                e
+            )))
+        })?;
+
+        let fortis_program_id = fortis_rwa_program_pubkey()?;
+        add_extra_account_metas_for_execute(
+            &mut transfer_ix,
+            &fortis_program_id,
+            &source_ata,
+            &mint_pubkey,
+            &destination_ata,
+            &keypair.pubkey(),
+            amount,
+            |address| async move {
+                match sdk_client.get_account(&address).await {
+                    Ok(account) => Ok(Some(account.data)),
+                    Err(error) => {
+                        let message = error.to_string();
+                        if message.contains("AccountNotFound")
+                            || message.contains("could not find account")
+                            || message.contains("not found")
+                        {
+                            Ok(None)
+                        } else {
+                            Err(Box::new(error) as _)
+                        }
+                    }
+                }
+            },
+        )
+        .await
+        .map_err(|error| {
+            AppError::Blockchain(BlockchainError::TransactionFailed(format!(
+                "Failed to resolve transfer hook extra accounts: {}",
+                error
+            )))
+        })?;
+
+        instructions.push(transfer_ix);
+
+        if let Some(tip_ix) = self.create_jito_tip_instruction(&keypair.pubkey()) {
+            instructions.push(tip_ix);
+        }
+
+        let recent_blockhash = sdk_client
+            .get_latest_blockhash()
+            .await
+            .map_err(map_solana_client_error)?;
+        let transaction = Transaction::new_signed_with_payer(
+            &instructions,
+            Some(&keypair.pubkey()),
+            &[keypair],
+            recent_blockhash,
+        );
+
+        self.submit_or_confirm_transaction(&transaction).await
+    }
+}
+
+#[async_trait]
+impl BlockchainClient for RpcBlockchainClient {
+    #[instrument(skip(self))]
+    async fn health_check(&self) -> Result<(), AppError> {
+        let _: u64 = self.rpc_call("getSlot", Vec::<()>::new()).await?;
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
+    async fn submit_transaction(
+        &self,
+        request: &TransferRequest,
+    ) -> Result<(String, String), AppError> {
+        info!(id = %request.id, "Submitting transaction for request");
+
+        // Check if we have SDK client (for real transactions)
+        if self.sdk_client.is_none() || self.keypair.is_none() {
+            // Mock implementation for testing (when SDK client not available)
+            debug!("Using mock implementation for submit_transaction");
+            let signature = self.sign(request.id.as_bytes());
+            return Ok((
+                format!("tx_{}", &signature[..16]),
+                "mock_blockhash".to_string(),
+            ));
+        }
+
+        match &request.transfer_details {
+            TransferType::Public { amount } => {
+                self.transfer_token_internal(
+                    &request.to_address,
+                    request.required_token_mint()?,
+                    *amount,
+                    request.source_owner_address.as_deref(),
+                )
+                .await
+            }
+        }
+    }
+
+    #[instrument(skip(self))]
+    async fn approve_wallet(
+        &self,
+        token_mint: &str,
+        wallet_address: &str,
+        compliance_level: ComplianceLevel,
+    ) -> Result<WalletApprovalSubmission, AppError> {
+        info!(
+            wallet = %wallet_address,
+            token_mint = %token_mint,
+            compliance_level = %compliance_level,
+            "Submitting Fortis RWA wallet approval"
+        );
+
+        if self.sdk_client.is_none() || self.keypair.is_none() {
+            let mint_pubkey = token_mint.parse::<Pubkey>().map_err(|e| {
+                AppError::Validation(crate::domain::ValidationError::InvalidField {
+                    field: "token_mint".to_string(),
+                    message: format!("Invalid base58 pubkey: {}", e),
+                })
+            })?;
+            let wallet_pubkey = wallet_address.parse::<Pubkey>().map_err(|e| {
+                AppError::Validation(crate::domain::ValidationError::InvalidField {
+                    field: "wallet_address".to_string(),
+                    message: format!("Invalid base58 pubkey: {}", e),
+                })
+            })?;
+            let program_id = fortis_rwa_program_pubkey()?;
+            let (asset_record_pda, _) =
+                Pubkey::find_program_address(&[b"asset", mint_pubkey.as_ref()], &program_id);
+            let (compliance_record_pda, _) = Pubkey::find_program_address(
+                &[b"compliance", mint_pubkey.as_ref(), wallet_pubkey.as_ref()],
+                &program_id,
+            );
+            let mock_signature = self.sign(
+                format!(
+                    "approve-wallet:{}:{}:{}",
+                    token_mint,
+                    wallet_address,
+                    compliance_level.as_str()
+                )
+                .as_bytes(),
+            );
+
+            return Ok(WalletApprovalSubmission {
+                asset_record_pda: asset_record_pda.to_string(),
+                compliance_record_pda: compliance_record_pda.to_string(),
+                tx_signature: Some(format!("wallet_approval_{}", &mock_signature[..16])),
+            });
+        }
+
+        let (sdk_client, keypair) = self.require_sdk_and_keypair()?;
+        let (asset_record_pda_str, compliance_record_pda_str, approval_ix) = self
+            .build_wallet_approval_instruction(token_mint, wallet_address, compliance_level)
+            .await?;
+        let Some(approve_wallet_ix) = approval_ix else {
+            info!(
+                wallet = %wallet_address,
+                token_mint = %token_mint,
+                compliance_record_pda = %compliance_record_pda_str,
+                "Wallet approval already exists on-chain; skipping duplicate submission"
+            );
+
+            return Ok(WalletApprovalSubmission {
+                asset_record_pda: asset_record_pda_str,
+                compliance_record_pda: compliance_record_pda_str,
+                tx_signature: None,
+            });
+        };
+
+        let priority_fee = self.get_priority_fee(None).await;
         let mut instructions = vec![
             ComputeBudgetInstruction::set_compute_unit_price(priority_fee),
             approve_wallet_ix,
@@ -964,7 +1277,7 @@ impl BlockchainClient for RpcBlockchainClient {
             wallet = %wallet_address,
             token_mint = %token_mint,
             signature = %signature,
-            compliance_record_pda = %compliance_record_pda,
+            compliance_record_pda = %compliance_record_pda_str,
             "Fortis wallet approval submitted"
         );
 
@@ -972,6 +1285,298 @@ impl BlockchainClient for RpcBlockchainClient {
             asset_record_pda: asset_record_pda_str,
             compliance_record_pda: compliance_record_pda_str,
             tx_signature: Some(signature),
+        })
+    }
+
+    #[instrument(skip(self, request), fields(listing_id = request.listing_id, seller = %request.seller_wallet_address))]
+    async fn tokenize_listing(
+        &self,
+        request: &TokenizeListingRequest,
+    ) -> Result<TokenizeListingResult, AppError> {
+        let seller_pubkey = request
+            .seller_wallet_address
+            .parse::<Pubkey>()
+            .map_err(|e| {
+                AppError::Validation(crate::domain::ValidationError::InvalidField {
+                    field: "sellerWalletAddress".to_string(),
+                    message: format!("Invalid base58 pubkey: {}", e),
+                })
+            })?;
+
+        if self.sdk_client.is_none() || self.keypair.is_none() {
+            let mock_seed = format!("tokenize-listing:{}", request.listing_id);
+            let mock_signature = self.sign(mock_seed.as_bytes());
+            return Ok(TokenizeListingResult {
+                token_mint_address: format!("mock_mint_{}", &mock_signature[..16]),
+                asset_record_pda: format!("mock_asset_{}", &mock_signature[..16]),
+                seller_compliance_record_pda: format!("mock_compliance_{}", &mock_signature[..16]),
+                delegate_wallet_address: self.public_key(),
+                planned_supply: request.planned_supply,
+                initialize_mint_signature: Some(format!("mint_init_{}", &mock_signature[..16])),
+                initialize_asset_signature: Some(format!("asset_init_{}", &mock_signature[..16])),
+                mint_to_signature: Some(format!("mint_to_{}", &mock_signature[..16])),
+            });
+        }
+
+        let (sdk_client, authority_keypair) = self.require_sdk_and_keypair()?;
+        let token_program_id = spl_token_2022::id();
+        let fortis_program_id = fortis_rwa_program_pubkey()?;
+        let mint_keypair = Keypair::new();
+        let mint_pubkey = mint_keypair.pubkey();
+        let delegate_wallet = authority_keypair.pubkey();
+        let extra_account_meta_list =
+            get_extra_account_metas_address(&mint_pubkey, &fortis_program_id);
+        let (asset_record_pda, _) =
+            Pubkey::find_program_address(&[b"asset", mint_pubkey.as_ref()], &fortis_program_id);
+        let (_seller_compliance_record_pda, _) = Pubkey::find_program_address(
+            &[b"compliance", mint_pubkey.as_ref(), seller_pubkey.as_ref()],
+            &fortis_program_id,
+        );
+
+        let mint_extensions = [
+            ExtensionType::TransferHook,
+            ExtensionType::PermanentDelegate,
+        ];
+        let mint_len = ExtensionType::try_calculate_account_len::<PodMint>(&mint_extensions)
+            .map_err(|e| {
+                AppError::Blockchain(BlockchainError::TransactionFailed(format!(
+                    "Failed to calculate Token-2022 mint length: {}",
+                    e
+                )))
+            })?;
+        let rent_lamports = sdk_client
+            .get_minimum_balance_for_rent_exemption(mint_len)
+            .await
+            .map_err(map_solana_client_error)?;
+
+        let create_mint_ix = system_instruction::create_account(
+            &authority_keypair.pubkey(),
+            &mint_pubkey,
+            rent_lamports,
+            mint_len as u64,
+            &token_program_id,
+        );
+        let init_transfer_hook_ix = transfer_hook_instruction::initialize(
+            &token_program_id,
+            &mint_pubkey,
+            Some(authority_keypair.pubkey()),
+            Some(fortis_program_id),
+        )
+        .map_err(|e| {
+            AppError::Blockchain(BlockchainError::TransactionFailed(format!(
+                "Failed to create transfer hook initialization instruction: {}",
+                e
+            )))
+        })?;
+        let init_permanent_delegate_ix = token2022_instruction::initialize_permanent_delegate(
+            &token_program_id,
+            &mint_pubkey,
+            &delegate_wallet,
+        )
+        .map_err(|e| {
+            AppError::Blockchain(BlockchainError::TransactionFailed(format!(
+                "Failed to create permanent delegate instruction: {}",
+                e
+            )))
+        })?;
+        let init_mint_ix = token2022_instruction::initialize_mint2(
+            &token_program_id,
+            &mint_pubkey,
+            &authority_keypair.pubkey(),
+            None,
+            0,
+        )
+        .map_err(|e| {
+            AppError::Blockchain(BlockchainError::TransactionFailed(format!(
+                "Failed to create mint initialization instruction: {}",
+                e
+            )))
+        })?;
+
+        let priority_fee = self.get_priority_fee(None).await;
+        let mut mint_setup_instructions = vec![
+            ComputeBudgetInstruction::set_compute_unit_price(priority_fee),
+            create_mint_ix,
+            init_transfer_hook_ix,
+            init_permanent_delegate_ix,
+            init_mint_ix,
+        ];
+        if let Some(tip_ix) = self.create_jito_tip_instruction(&authority_keypair.pubkey()) {
+            mint_setup_instructions.push(tip_ix);
+        }
+        let mint_setup_blockhash = sdk_client
+            .get_latest_blockhash()
+            .await
+            .map_err(map_solana_client_error)?;
+        let mint_setup_tx = Transaction::new_signed_with_payer(
+            &mint_setup_instructions,
+            Some(&authority_keypair.pubkey()),
+            &[authority_keypair, &mint_keypair],
+            mint_setup_blockhash,
+        );
+        let initialize_mint_signature = self
+            .submit_and_confirm_transaction(&mint_setup_tx, "initialize listing mint")
+            .await?;
+
+        let initialize_extra_accounts_ix = Instruction {
+            program_id: fortis_program_id,
+            accounts: vec![
+                AccountMeta::new(authority_keypair.pubkey(), true),
+                AccountMeta::new(extra_account_meta_list, false),
+                AccountMeta::new_readonly(mint_pubkey, false),
+                AccountMeta::new_readonly(
+                    Pubkey::from_str("11111111111111111111111111111111")
+                        .expect("valid system program id"),
+                    false,
+                ),
+            ],
+            data: Self::anchor_instruction_data("global:initialize_extra_account_meta_list"),
+        };
+        let initialize_asset_ix = Instruction {
+            program_id: fortis_program_id,
+            accounts: vec![
+                AccountMeta::new(authority_keypair.pubkey(), true),
+                AccountMeta::new_readonly(mint_pubkey, false),
+                AccountMeta::new(asset_record_pda, false),
+                AccountMeta::new_readonly(
+                    Pubkey::from_str("11111111111111111111111111111111")
+                        .expect("valid system program id"),
+                    false,
+                ),
+            ],
+            data: Self::anchor_instruction_data_with_args(
+                "global:initialize_asset",
+                &InitializeAssetArgs {
+                    name: request.asset_name(),
+                    asset_type: request.asset_type.into(),
+                    planned_supply: request.planned_supply,
+                    valuation_usd: request.valuation_usd,
+                    document_uri: request.document_uri(),
+                    document_hash: request.document_hash_bytes(),
+                },
+            )?,
+        };
+
+        let mut asset_setup_instructions = vec![
+            ComputeBudgetInstruction::set_compute_unit_price(priority_fee),
+            initialize_extra_accounts_ix,
+            initialize_asset_ix,
+        ];
+        if let Some(tip_ix) = self.create_jito_tip_instruction(&authority_keypair.pubkey()) {
+            asset_setup_instructions.push(tip_ix);
+        }
+        let asset_setup_blockhash = sdk_client
+            .get_latest_blockhash()
+            .await
+            .map_err(map_solana_client_error)?;
+        let asset_setup_tx = Transaction::new_signed_with_payer(
+            &asset_setup_instructions,
+            Some(&authority_keypair.pubkey()),
+            &[authority_keypair],
+            asset_setup_blockhash,
+        );
+        let initialize_asset_signature = self
+            .submit_and_confirm_transaction(&asset_setup_tx, "initialize listing asset")
+            .await?;
+
+        let (asset_record_pda_str, seller_compliance_record_pda_str, seller_approval_ix) = self
+            .build_wallet_approval_instruction(
+                &mint_pubkey.to_string(),
+                &seller_pubkey.to_string(),
+                ComplianceLevel::Standard,
+            )
+            .await?;
+        let (_asset_record_again, _delegate_compliance_record, delegate_approval_ix) = self
+            .build_wallet_approval_instruction(
+                &mint_pubkey.to_string(),
+                &delegate_wallet.to_string(),
+                ComplianceLevel::Standard,
+            )
+            .await?;
+
+        let mut approval_instructions =
+            vec![ComputeBudgetInstruction::set_compute_unit_price(priority_fee)];
+        if let Some(ix) = seller_approval_ix {
+            approval_instructions.push(ix);
+        }
+        if let Some(ix) = delegate_approval_ix {
+            approval_instructions.push(ix);
+        }
+        if approval_instructions.len() > 1 {
+            if let Some(tip_ix) = self.create_jito_tip_instruction(&authority_keypair.pubkey()) {
+                approval_instructions.push(tip_ix);
+            }
+            let approval_blockhash = sdk_client
+                .get_latest_blockhash()
+                .await
+                .map_err(map_solana_client_error)?;
+            let approval_tx = Transaction::new_signed_with_payer(
+                &approval_instructions,
+                Some(&authority_keypair.pubkey()),
+                &[authority_keypair],
+                approval_blockhash,
+            );
+            self.submit_and_confirm_transaction(&approval_tx, "approve seller and delegate")
+                .await?;
+        }
+
+        let seller_ata = get_associated_token_address_with_program_id(
+            &seller_pubkey,
+            &mint_pubkey,
+            &token_program_id,
+        );
+        let create_seller_ata_ix = create_associated_token_account_idempotent(
+            &authority_keypair.pubkey(),
+            &seller_pubkey,
+            &mint_pubkey,
+            &token_program_id,
+        );
+        let mint_to_ix = token2022_instruction::mint_to(
+            &token_program_id,
+            &mint_pubkey,
+            &seller_ata,
+            &authority_keypair.pubkey(),
+            &[],
+            request.planned_supply,
+        )
+        .map_err(|e| {
+            AppError::Blockchain(BlockchainError::TransactionFailed(format!(
+                "Failed to create mint_to instruction: {}",
+                e
+            )))
+        })?;
+
+        let mut mint_to_instructions = vec![
+            ComputeBudgetInstruction::set_compute_unit_price(priority_fee),
+            create_seller_ata_ix,
+            mint_to_ix,
+        ];
+        if let Some(tip_ix) = self.create_jito_tip_instruction(&authority_keypair.pubkey()) {
+            mint_to_instructions.push(tip_ix);
+        }
+        let mint_to_blockhash = sdk_client
+            .get_latest_blockhash()
+            .await
+            .map_err(map_solana_client_error)?;
+        let mint_to_tx = Transaction::new_signed_with_payer(
+            &mint_to_instructions,
+            Some(&authority_keypair.pubkey()),
+            &[authority_keypair],
+            mint_to_blockhash,
+        );
+        let mint_to_signature = self
+            .submit_and_confirm_transaction(&mint_to_tx, "mint listing supply to seller")
+            .await?;
+
+        Ok(TokenizeListingResult {
+            token_mint_address: mint_pubkey.to_string(),
+            asset_record_pda: asset_record_pda_str,
+            seller_compliance_record_pda: seller_compliance_record_pda_str,
+            delegate_wallet_address: delegate_wallet.to_string(),
+            planned_supply: request.planned_supply,
+            initialize_mint_signature: Some(initialize_mint_signature),
+            initialize_asset_signature: Some(initialize_asset_signature),
+            mint_to_signature: Some(mint_to_signature),
         })
     }
 
@@ -1066,228 +1671,8 @@ impl BlockchainClient for RpcBlockchainClient {
         token_mint: &str,
         amount: u64,
     ) -> Result<(String, String), AppError> {
-        info!(to = %to_address, token_mint = %token_mint, amount = %amount, "Transferring SPL Token (raw units)");
-
-        // Validate amount
-        if amount == 0 {
-            return Err(AppError::Blockchain(BlockchainError::TransactionFailed(
-                "Transfer amount must be greater than 0".to_string(),
-            )));
-        }
-
-        // Check if we have SDK client and keypair
-        let (sdk_client, keypair) = match (&self.sdk_client, &self.keypair) {
-            (Some(client), Some(kp)) => (client, kp),
-            _ => {
-                return Err(AppError::Blockchain(BlockchainError::TransactionFailed(
-                    "SDK client not initialized for token transfers".to_string(),
-                )));
-            }
-        };
-
-        // Parse addresses
-        let to_pubkey = to_address.parse::<Pubkey>().map_err(|e| {
-            AppError::Blockchain(BlockchainError::InvalidSignature(format!(
-                "Invalid destination address: {}",
-                e
-            )))
-        })?;
-
-        let mint_pubkey = token_mint.parse::<Pubkey>().map_err(|e| {
-            AppError::Blockchain(BlockchainError::InvalidSignature(format!(
-                "Invalid token mint address: {}",
-                e
-            )))
-        })?;
-
-        // Fetch the mint account to determine the correct token program ID and decimals
-        // This is required for transfer_checked instruction (validates decimals) and Token-2022 support
-        let mint_account = sdk_client.get_account(&mint_pubkey).await.map_err(|e| {
-            AppError::Blockchain(BlockchainError::TransactionFailed(format!(
-                "Failed to fetch mint account: {}",
-                e
-            )))
-        })?;
-
-        let token_program_id = mint_account.owner;
-        if token_program_id != spl_token_2022::id() {
-            return Err(AppError::Blockchain(BlockchainError::TransactionFailed(
-                format!(
-                    "Fortis RWA transfers require a Token-2022 mint. Expected owner {}, found {}",
-                    spl_token_2022::id(),
-                    token_program_id
-                ),
-            )));
-        }
-        debug!(token_program_id = %token_program_id, "Detected Token-2022 mint owner");
-
-        // Extract decimals from mint account data (required for transfer_checked)
-        // Mint layout (both SPL Token and Token-2022):
-        // - bytes 0-35: mint_authority option (1 byte option flag + up to 32 bytes pubkey)
-        // - bytes 36-43: supply (u64)
-        // - byte 44: decimals (u8)
-        // - byte 45: is_initialized (bool)
-        // - bytes 46-78: freeze_authority option
-        const DECIMALS_OFFSET: usize = 44;
-        const MIN_MINT_SIZE: usize = 82;
-
-        if mint_account.data.len() < MIN_MINT_SIZE {
-            return Err(AppError::Blockchain(BlockchainError::TransactionFailed(
-                format!(
-                    "Mint account data too small: {} bytes, expected at least {}",
-                    mint_account.data.len(),
-                    MIN_MINT_SIZE
-                ),
-            )));
-        }
-
-        let decimals = mint_account.data[DECIMALS_OFFSET];
-        debug!(decimals = %decimals, "Read decimals from mint account (needed for transfer_checked)");
-
-        // Derive Associated Token Accounts with the correct token program ID
-        let source_ata = get_associated_token_address_with_program_id(
-            &keypair.pubkey(),
-            &mint_pubkey,
-            &token_program_id,
-        );
-        let destination_ata = get_associated_token_address_with_program_id(
-            &to_pubkey,
-            &mint_pubkey,
-            &token_program_id,
-        );
-
-        debug!(
-            source_ata = %source_ata,
-            destination_ata = %destination_ata,
-            token_program_id = %token_program_id,
-            "Derived ATAs for token transfer"
-        );
-
-        // CRITICAL: Verify source ATA exists and has sufficient balance
-        let source_account = sdk_client.get_account(&source_ata).await.map_err(|e| {
-            AppError::Blockchain(BlockchainError::TransactionFailed(format!(
-                "Source token account does not exist or cannot be fetched. \
-                 The sender ({}) does not have an associated token account for mint {}. \
-                 Error: {}",
-                keypair.pubkey(),
-                token_mint,
-                e
-            )))
-        })?;
-
-        // Verify the source account is owned by the token program
-        if source_account.owner != token_program_id {
-            return Err(AppError::Blockchain(BlockchainError::TransactionFailed(
-                format!(
-                    "Source token account is not owned by the token program. \
-                     Expected owner: {}, actual owner: {}",
-                    token_program_id, source_account.owner
-                ),
-            )));
-        }
-
-        // Extract balance from token account data to verify sufficient funds
-        // Token account layout: amount is at bytes 64-72 (u64 LE)
-        const TOKEN_ACCOUNT_AMOUNT_OFFSET: usize = 64;
-        if source_account.data.len() >= TOKEN_ACCOUNT_AMOUNT_OFFSET + 8 {
-            let balance_bytes: [u8; 8] = source_account.data
-                [TOKEN_ACCOUNT_AMOUNT_OFFSET..TOKEN_ACCOUNT_AMOUNT_OFFSET + 8]
-                .try_into()
-                .unwrap();
-            let balance = u64::from_le_bytes(balance_bytes);
-            debug!(source_balance = %balance, required = %amount, "Checking source token balance");
-
-            if balance < amount {
-                return Err(AppError::Blockchain(BlockchainError::InsufficientFunds));
-            }
-        }
-
-        // Get priority fee using provider-specific strategy
-        let priority_fee = self.get_priority_fee(None).await;
-
-        // Start with compute budget instruction for priority fee
-        let mut instructions: Vec<Instruction> =
-            vec![ComputeBudgetInstruction::set_compute_unit_price(
-                priority_fee,
-            )];
-
-        // Check if destination ATA exists
-        let dest_account_result = sdk_client.get_account(&destination_ata).await;
-
-        if dest_account_result.is_err() {
-            // ATA doesn't exist - create it using idempotent instruction
-            // This is safer as it won't fail if the ATA gets created between our check and execution
-            info!(destination_ata = %destination_ata, "Creating destination ATA");
-            let create_ata_ix = create_associated_token_account_idempotent(
-                &keypair.pubkey(), // payer
-                &to_pubkey,        // wallet owner
-                &mint_pubkey,      // token mint
-                &token_program_id, // token program (dynamically detected)
-            );
-            instructions.push(create_ata_ix);
-        }
-
-        // Create SPL Token transfer_checked instruction for safer transfers
-        // transfer_checked validates the mint and decimals, providing better error messages
-        // Note: We pass the raw `amount` directly (already in token units), but still need
-        // `decimals` for the transfer_checked instruction validation
-        let transfer_ix = token_instruction::transfer_checked(
-            &token_program_id,
-            &source_ata,
-            &mint_pubkey,
-            &destination_ata,
-            &keypair.pubkey(), // authority (owner of source account)
-            &[],               // no multisig signers
-            amount,            // already in raw token units
-            decimals,          // required by transfer_checked for validation
-        )
-        .map_err(|e| {
-            AppError::Blockchain(BlockchainError::TransactionFailed(format!(
-                "Failed to create transfer_checked instruction: {}",
-                e
-            )))
-        })?;
-
-        instructions.push(transfer_ix);
-
-        // Append Jito tip instruction if enabled (MUST be last instruction per Jito best practices)
-        if let Some(tip_ix) = self.create_jito_tip_instruction(&keypair.pubkey()) {
-            info!(
-                tip_lamports = self.jito_tip_lamports.unwrap_or(0),
-                "Appending Jito tip instruction to token transfer"
-            );
-            instructions.push(tip_ix);
-        }
-
-        // Get recent blockhash
-        let recent_blockhash = sdk_client
-            .get_latest_blockhash()
+        self.transfer_token_internal(to_address, token_mint, amount, None)
             .await
-            .map_err(map_solana_client_error)?;
-
-        // Build and sign transaction
-        let transaction = Transaction::new_signed_with_payer(
-            &instructions,
-            Some(&keypair.pubkey()),
-            &[keypair],
-            recent_blockhash,
-        );
-
-        // Submit via strategy if available, otherwise use SDK
-        let (signature, blockhash) = self.submit_or_confirm_transaction(&transaction).await?;
-
-        info!(
-            signature = %signature,
-            to = %to_address,
-            token_mint = %token_mint,
-            amount = %amount,
-            decimals = %decimals,
-            via_strategy = self.submission_strategy.is_some(),
-            jito_tip = self.jito_tip_lamports.filter(|_| self.supports_private_submission()),
-            "SPL Token transfer submitted (raw units)"
-        );
-
-        Ok((signature, blockhash))
     }
 
     /// Check if a wallet holds compliant assets using Helius DAS.

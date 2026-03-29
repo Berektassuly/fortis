@@ -10,13 +10,15 @@ use axum::{
 };
 use tracing::{error, info};
 use utoipa::OpenApi;
+use validator::Validate;
 
 use crate::app::AppState;
 use crate::domain::{
     AppError, BlockchainError, DatabaseError, ErrorDetail, ErrorResponse, ExternalServiceError,
     HealthResponse, HealthStatus, HeliusTransaction, PaginatedResponse, PaginationParams,
     QuickNodeWebhookEvent, RateLimitResponse, RiskCheckRequest, RiskCheckResult,
-    SubmitTransferRequest, TransferRequest, ValidationError,
+    SubmitTransferRequest, TokenizeListingRequest, TokenizeListingResult, TransferRequest,
+    ValidationError,
 };
 
 /// OpenAPI documentation structure
@@ -36,6 +38,7 @@ use crate::domain::{
     ),
     paths(
         submit_transfer_handler,
+        tokenize_listing_handler,
         list_transfer_requests_handler,
         get_transfer_request_handler,
         retry_blockchain_handler,
@@ -48,6 +51,8 @@ use crate::domain::{
         schemas(
             TransferRequest,
             SubmitTransferRequest,
+            TokenizeListingRequest,
+            TokenizeListingResult,
             crate::domain::ComplianceStatus,
             crate::domain::BlockchainStatus,
             PaginationParams,
@@ -63,11 +68,41 @@ use crate::domain::{
     ),
     tags(
         (name = "transfers", description = "Transfer request management endpoints"),
+        (name = "listings", description = "Listing tokenization endpoints"),
         (name = "health", description = "Health check endpoints"),
         (name = "compliance", description = "Compliance and risk check endpoints")
     )
 )]
 pub struct ApiDoc;
+
+/// Tokenize a newly created marketplace listing.
+///
+/// This creates a Token-2022 mint with Transfer Hook and permanent delegate,
+/// initializes the Fortis asset record, mints the planned supply to the seller,
+/// and approves both the seller and Fortis delegate for compliant transfers.
+#[utoipa::path(
+    post,
+    path = "/listings/tokenize",
+    tag = "listings",
+    request_body = TokenizeListingRequest,
+    responses(
+        (status = 200, description = "Listing tokenized successfully", body = TokenizeListingResult),
+        (status = 400, description = "Validation error", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse),
+        (status = 503, description = "Blockchain unavailable", body = ErrorResponse)
+    )
+)]
+pub async fn tokenize_listing_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<TokenizeListingRequest>,
+) -> Result<Json<TokenizeListingResult>, AppError> {
+    payload.validate().map_err(|error| {
+        AppError::Validation(ValidationError::Multiple(error.to_string()))
+    })?;
+
+    let result = state.blockchain_client.tokenize_listing(&payload).await?;
+    Ok(Json(result))
+}
 
 /// Submit a new transfer request
 ///

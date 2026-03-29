@@ -35,6 +35,7 @@ use super::handlers::{
     ApiDoc, get_transfer_request_handler, health_check_handler, helius_webhook_handler,
     list_transfer_requests_handler, liveness_handler, quicknode_webhook_handler, readiness_handler,
     retry_blockchain_handler, risk_check_handler, submit_transfer_handler,
+    tokenize_listing_handler,
 };
 
 /// Rate limiter configuration
@@ -279,6 +280,8 @@ pub fn create_router(app_state: Arc<AppState>) -> Router {
         .route("/{id}", get(get_transfer_request_handler))
         .route("/{id}/retry", post(retry_blockchain_handler));
 
+    let listing_routes = Router::new().route("/tokenize", post(tokenize_listing_handler));
+
     // Health routes
     let health_routes = Router::new()
         .route("/", get(health_check_handler))
@@ -303,6 +306,7 @@ pub fn create_router(app_state: Arc<AppState>) -> Router {
 
     Router::new()
         .nest("/transfer-requests", transfer_routes)
+        .nest("/listings", listing_routes)
         .nest("/webhooks", webhook_routes)
         .nest("/health", health_routes)
         .nest("/admin", admin_routes)
@@ -336,6 +340,13 @@ pub fn create_router_with_rate_limit(app_state: Arc<AppState>, config: RateLimit
         )
         .route("/{id}", get(get_transfer_request_handler))
         .route("/{id}/retry", post(retry_blockchain_handler))
+        .layer(middleware::from_fn_with_state(
+            Arc::clone(&rate_limit_state),
+            rate_limit_transfers_middleware,
+        ));
+
+    let listing_routes = Router::new()
+        .route("/tokenize", post(tokenize_listing_handler))
         .layer(middleware::from_fn_with_state(
             Arc::clone(&rate_limit_state),
             rate_limit_transfers_middleware,
@@ -379,6 +390,7 @@ pub fn create_router_with_rate_limit(app_state: Arc<AppState>, config: RateLimit
 
     Router::new()
         .nest("/transfer-requests", transfer_routes)
+        .nest("/listings", listing_routes)
         .nest("/webhooks", webhook_routes)
         .nest("/health", health_routes)
         .nest("/admin", admin_routes)

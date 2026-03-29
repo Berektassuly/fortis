@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Home, LogIn, Plus, Search } from "lucide-react";
 
+import WalletBindingControl from "@/components/marketplace/wallet-binding-control";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
@@ -46,6 +47,8 @@ export default async function Header() {
         </div>
 
         <div className="flex items-center gap-2">
+          <WalletBindingControl />
+
           {!supabaseConfigured ? (
             <span className="glass rounded-2xl px-4 py-2.5 text-sm text-muted-foreground">
               Auth unavailable

@@ -2,44 +2,63 @@ import crypto from "node:crypto";
 
 import { env } from "@/lib/env";
 
-export interface FortisOrderIntent {
-  orderId: number;
+export interface FortisTokenizeListingPayload {
+  city?: string | null;
+  description?: string | null;
+  imageUrl?: string | null;
   listingId: number;
-  userId: number;
+  priceFiat: number;
+  sellerWalletAddress: string;
+  title: string;
 }
 
-export interface FortisDispatchResult {
-  dispatched: boolean;
-  reference: string | null;
+export interface FortisTokenizeListingResult {
+  assetRecordPda: string;
+  delegateWalletAddress: string;
+  plannedSupply: number;
+  sellerComplianceRecordPda: string;
+  tokenMintAddress: string;
 }
 
-function getFortisOrderUrl() {
+export interface FortisSubmitTransferRequestPayload {
+  amount: number;
+  from_address: string;
+  mint: string;
+  nonce: string;
+  signature: string;
+  source_owner_address?: string | null;
+  to_address: string;
+}
+
+export interface FortisTransferRequestResult {
+  blockchain_signature: string | null;
+  blockchain_last_error?: string | null;
+  blockchain_status: string;
+  compliance_status: string;
+  id: string;
+}
+
+function getFortisUrl(path: string) {
   if (!env.FORTIS_ENGINE_URL) {
     return null;
   }
 
-  return new URL(env.FORTIS_ENGINE_ORDER_PATH, `${env.FORTIS_ENGINE_URL.replace(/\/$/, "")}/`);
+  return new URL(path, `${env.FORTIS_ENGINE_URL.replace(/\/$/, "")}/`);
 }
 
-export async function dispatchOrderIntentToFortis(
-  payload: FortisOrderIntent,
-): Promise<FortisDispatchResult> {
-  const targetUrl = getFortisOrderUrl();
+async function requestFortis<T>(path: string, init: RequestInit): Promise<T> {
+  const targetUrl = getFortisUrl(path);
 
   if (!targetUrl) {
-    return {
-      dispatched: false,
-      reference: null,
-    };
+    throw new Error("FORTIS_ENGINE_URL is not configured.");
   }
 
   const response = await fetch(targetUrl, {
-    method: "POST",
+    ...init,
     headers: {
-      "Content-Type": "application/json",
+      ...(init.headers ?? {}),
       ...(env.FORTIS_ENGINE_TOKEN ? { Authorization: `Bearer ${env.FORTIS_ENGINE_TOKEN}` } : {}),
     },
-    body: JSON.stringify(payload),
     cache: "no-store",
   });
 
@@ -48,22 +67,54 @@ export async function dispatchOrderIntentToFortis(
     throw new Error(`Fortis engine request failed with ${response.status}${details ? `: ${details}` : ""}`);
   }
 
-  const contentType = response.headers.get("content-type") ?? "";
-  if (!contentType.includes("application/json")) {
-    return {
-      dispatched: true,
-      reference: null,
-    };
-  }
+  return (await response.json()) as T;
+}
 
-  const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-  const reference = body?.reference ?? body?.id ?? body?.orderId;
+export async function tokenizeListingWithFortis(
+  payload: FortisTokenizeListingPayload,
+): Promise<FortisTokenizeListingResult> {
+  return requestFortis<FortisTokenizeListingResult>(env.FORTIS_ENGINE_TOKENIZE_PATH, {
+    body: JSON.stringify(payload),
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+}
 
-  return {
-    dispatched: true,
-    reference:
-      typeof reference === "string" || typeof reference === "number" ? String(reference) : null,
-  };
+export async function submitTransferRequestToFortis(
+  payload: FortisSubmitTransferRequestPayload,
+): Promise<FortisTransferRequestResult> {
+  return requestFortis<FortisTransferRequestResult>(env.FORTIS_ENGINE_TRANSFER_REQUEST_PATH, {
+    body: JSON.stringify({
+      from_address: payload.from_address,
+      nonce: payload.nonce,
+      signature: payload.signature,
+      source_owner_address: payload.source_owner_address ?? null,
+      to_address: payload.to_address,
+      token_mint: payload.mint,
+      transfer_details: {
+        amount: payload.amount,
+        type: "public",
+      },
+    }),
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": payload.nonce,
+    },
+    method: "POST",
+  });
+}
+
+export async function getFortisTransferRequest(
+  requestId: string,
+): Promise<FortisTransferRequestResult> {
+  return requestFortis<FortisTransferRequestResult>(
+    `${env.FORTIS_ENGINE_TRANSFER_REQUEST_PATH.replace(/\/$/, "")}/${requestId}`,
+    {
+      method: "GET",
+    },
+  );
 }
 
 export function verifyFortisWebhookSignature(rawBody: string, signatureHeader: string | null) {

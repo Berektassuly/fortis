@@ -32,6 +32,7 @@ export async function POST() {
     return NextResponse.json({
       id: prismaUser.id,
       email: prismaUser.email,
+      solanaWalletAddress: prismaUser.solanaWalletAddress,
     });
   } catch (error) {
     return toErrorResponse(error, "Failed to sync the authenticated user");

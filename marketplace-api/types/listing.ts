@@ -11,7 +11,7 @@ export interface MarketplaceListing extends ListingDto {
 export function toMarketplaceListing(listing: ListingDto): MarketplaceListing {
   return {
     ...listing,
-    city: DEFAULT_LISTING_CITY,
-    rooms: DEFAULT_LISTING_ROOMS,
+    city: listing.city ?? DEFAULT_LISTING_CITY,
+    rooms: listing.rooms ?? DEFAULT_LISTING_ROOMS,
   };
 }

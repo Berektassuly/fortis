@@ -10,8 +10,8 @@ use uuid::Uuid;
 use crate::domain::{
     AppError, BlockchainClient, BlockchainError, BlockchainStatus, ComplianceDecision,
     ComplianceLevel, ComplianceProvider, ComplianceStatus, DatabaseClient, DatabaseError,
-    PaginatedResponse, SubmitTransferRequest, TransferRequest, WalletApproval,
-    WalletApprovalStatus, WalletApprovalSubmission,
+    PaginatedResponse, SubmitTransferRequest, TokenizeListingRequest, TokenizeListingResult,
+    TransferRequest, WalletApproval, WalletApprovalStatus, WalletApprovalSubmission,
 };
 
 /// Configuration for mock behavior
@@ -125,6 +125,7 @@ impl DatabaseClient for MockDatabaseClient {
             id: id.clone(),
             from_address: data.from_address.clone(),
             to_address: data.to_address.clone(),
+            source_owner_address: data.source_owner_address.clone(),
             transfer_details: data.transfer_details.clone(),
             token_mint: data.token_mint.clone(),
             asset_record_pda: None,
@@ -573,6 +574,35 @@ impl BlockchainClient for MockBlockchainClient {
             asset_record_pda: format!("asset_pda_{}", token_mint),
             compliance_record_pda: format!("compliance_pda_{}_{}", token_mint, wallet_address),
             tx_signature: Some(format!("approve_sig_{}", &token_mint[..8.min(token_mint.len())])),
+        })
+    }
+
+    async fn tokenize_listing(
+        &self,
+        request: &TokenizeListingRequest,
+    ) -> Result<TokenizeListingResult, AppError> {
+        self.check_should_fail()?;
+        let mint_seed = request
+            .listing_id
+            .chars()
+            .take(8)
+            .collect::<String>()
+            .to_lowercase();
+        let mut transactions = self.transactions.lock().unwrap();
+        transactions.push(format!(
+            "tokenize_listing:{}:{}:{}",
+            request.listing_id, request.seller_wallet_address, request.planned_supply
+        ));
+
+        Ok(TokenizeListingResult {
+            token_mint_address: format!("mint_{}", mint_seed),
+            asset_record_pda: format!("asset_pda_{}", mint_seed),
+            seller_compliance_record_pda: format!("seller_compliance_{}", mint_seed),
+            delegate_wallet_address: "fortis_delegate_wallet".to_string(),
+            planned_supply: request.planned_supply,
+            initialize_mint_signature: Some(format!("sig_init_mint_{}", mint_seed)),
+            initialize_asset_signature: Some(format!("sig_init_asset_{}", mint_seed)),
+            mint_to_signature: Some(format!("sig_mint_to_{}", mint_seed)),
         })
     }
 }

@@ -3,6 +3,7 @@
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 use solana_sdk::pubkey::Pubkey;
 use utoipa::ToSchema;
 use validator::Validate;
@@ -45,6 +46,51 @@ pub fn derive_compliance_record_pda(
     )
     .0
     .to_string())
+}
+
+/// Real-world asset category mirrored from the Anchor program enum order.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AssetType {
+    #[default]
+    RealEstate,
+    Bond,
+    Commodity,
+    Equity,
+    Other,
+}
+
+impl AssetType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::RealEstate => "real_estate",
+            Self::Bond => "bond",
+            Self::Commodity => "commodity",
+            Self::Equity => "equity",
+            Self::Other => "other",
+        }
+    }
+}
+
+impl std::str::FromStr for AssetType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "real_estate" => Ok(Self::RealEstate),
+            "bond" => Ok(Self::Bond),
+            "commodity" => Ok(Self::Commodity),
+            "equity" => Ok(Self::Equity),
+            "other" => Ok(Self::Other),
+            _ => Err(format!("Invalid asset type: {}", s)),
+        }
+    }
+}
+
+impl std::fmt::Display for AssetType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
 }
 
 /// Status of blockchain submission for a transfer
@@ -436,6 +482,11 @@ pub struct TransferRequest {
     #[schema(example = "DRpbCBMxVnDK7maPM5tGv6MvB3v1sRMC86PZ8okm21hy")]
     pub to_address: String,
 
+    /// Optional owner of the source token account when transfers are delegated.
+    /// This lets Fortis move seller-held tokens after verifying the buyer intent signature.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub source_owner_address: Option<String>,
+
     /// Transfer details
     pub transfer_details: TransferType,
 
@@ -522,6 +573,7 @@ impl TransferRequest {
             id,
             from_address,
             to_address,
+            source_owner_address: None,
             transfer_details: TransferType::Public { amount },
             token_mint: None,
             asset_record_pda: None,
@@ -614,6 +666,10 @@ pub struct SubmitTransferRequest {
     /// Recipient wallet address (Base58 Solana address)
     #[schema(example = "DRpbCBMxVnDK7maPM5tGv6MvB3v1sRMC86PZ8okm21hy")]
     pub to_address: String,
+
+    /// Optional owner of the source token account when Fortis acts as a permanent delegate.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub source_owner_address: Option<String>,
 
     /// Transfer details
     pub transfer_details: TransferType,
@@ -785,6 +841,7 @@ impl SubmitTransferRequest {
         Self {
             from_address,
             to_address,
+            source_owner_address: None,
             transfer_details: TransferType::Public { amount },
             token_mint: Some(token_mint),
             signature,
@@ -805,6 +862,7 @@ impl SubmitTransferRequest {
         Self {
             from_address,
             to_address,
+            source_owner_address: None,
             transfer_details: TransferType::Public { amount },
             token_mint: Some(token_mint),
             signature,
@@ -828,6 +886,102 @@ impl SubmitTransferRequest {
     }
 }
 
+/// Request to mint and register a newly listed RWA asset.
+#[derive(Debug, Clone, Serialize, Deserialize, Validate, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenizeListingRequest {
+    #[validate(range(min = 1, message = "listingId must be greater than 0"))]
+    #[schema(example = 42)]
+    pub listing_id: i64,
+
+    #[validate(length(min = 1, max = 64, message = "title is required"))]
+    #[schema(example = "Apartment 12B, Almaty")]
+    pub title: String,
+
+    #[serde(default)]
+    pub asset_type: AssetType,
+
+    #[serde(default = "default_planned_supply")]
+    #[validate(range(min = 1, message = "planned_supply must be greater than 0"))]
+    #[schema(example = 1)]
+    pub planned_supply: u64,
+
+    #[serde(rename = "priceFiat")]
+    #[validate(range(min = 1, message = "priceFiat must be greater than 0"))]
+    #[schema(example = 150000)]
+    pub valuation_usd: u64,
+
+    #[validate(length(min = 32, max = 44, message = "sellerWalletAddress must be a Solana public key"))]
+    #[schema(example = "HvwC9QSAzwEXkUkwqNNGhfNHoVqXJYfPvPZfQvJmHWcF")]
+    pub seller_wallet_address: String,
+
+    #[serde(default)]
+    #[schema(example = "Almaty")]
+    pub city: Option<String>,
+
+    #[serde(default)]
+    #[schema(example = "Penthouse with park view and verified deed package.")]
+    pub description: Option<String>,
+
+    #[serde(default)]
+    #[schema(example = "https://cdn.example.com/listing-42/front.jpg")]
+    pub image_url: Option<String>,
+}
+
+impl TokenizeListingRequest {
+    pub fn document_hash_bytes(&self) -> [u8; 32] {
+        let mut bytes = [0u8; 32];
+        let payload = format!(
+            "{}:{}:{}:{}:{}:{}",
+            self.listing_id,
+            self.title,
+            self.valuation_usd,
+            self.city.as_deref().unwrap_or_default(),
+            self.description.as_deref().unwrap_or_default(),
+            self.image_url.as_deref().unwrap_or_default()
+        );
+        let digest = sha2::Sha256::digest(payload.as_bytes());
+        bytes.copy_from_slice(&digest);
+        bytes
+    }
+
+    #[must_use]
+    pub fn asset_name(&self) -> String {
+        self.title.chars().take(64).collect()
+    }
+
+    #[must_use]
+    pub fn document_uri(&self) -> String {
+        let mut uri = format!("fortis://listing/{}", self.listing_id);
+        if let Some(city) = self.city.as_deref().filter(|value| !value.trim().is_empty()) {
+            uri.push_str(&format!("?city={}", city.replace(' ', "-")));
+        }
+        uri.chars().take(200).collect()
+    }
+}
+
+/// Result returned after a listing has been tokenized and seller approvals are in place.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenizeListingResult {
+    #[schema(example = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")]
+    pub token_mint_address: String,
+    #[schema(example = "4R7r6XoNFCg7c8JX3WmD4N8m5YJ6KZsQ1a5fH2LQv3kp")]
+    pub asset_record_pda: String,
+    #[schema(example = "7qSJw75oedM1gj3i2YxA6YnVxUa4u2AUsR4P7G6ykzNL")]
+    pub seller_compliance_record_pda: String,
+    #[schema(example = "9gP5v1o6mG5LZ6xU1w2sN1p2uQ4rT6yB8cM3nV7fK4Hy")]
+    pub delegate_wallet_address: String,
+    #[schema(example = 1)]
+    pub planned_supply: u64,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub initialize_mint_signature: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub initialize_asset_signature: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub mint_to_signature: Option<String>,
+}
+
 /// Pagination parameters for list requests
 #[derive(Debug, Clone, Serialize, Deserialize, Validate, ToSchema)]
 pub struct PaginationParams {
@@ -843,6 +997,10 @@ pub struct PaginationParams {
 
 fn default_limit() -> i64 {
     20
+}
+
+fn default_planned_supply() -> u64 {
+    1
 }
 
 impl Default for PaginationParams {
@@ -1273,6 +1431,7 @@ mod tests {
         let req = SubmitTransferRequest {
             from_address: "From".to_string(),
             to_address: "To".to_string(),
+            source_owner_address: None,
             transfer_details: TransferType::Public { amount: 1 },
             token_mint: None,
             signature: "sig".to_string(),
@@ -1291,11 +1450,12 @@ mod tests {
         );
 
         assert_eq!(req.compliance_status, ComplianceStatus::Pending);
-        assert_eq!(req.blockchain_status, BlockchainStatus::Pending);
+        assert_eq!(req.blockchain_status, BlockchainStatus::Received);
         assert!(req.blockchain_signature.is_none());
         assert_eq!(req.blockchain_retry_count, 0);
         assert!(req.blockchain_last_error.is_none());
         assert!(req.blockchain_next_retry_at.is_none());
+        assert!(req.source_owner_address.is_none());
         assert_eq!(
             req.transfer_details,
             TransferType::Public { amount: 1 }
@@ -1317,6 +1477,7 @@ mod tests {
         assert_eq!(deserialized.id, "tr_123");
         assert_eq!(deserialized.from_address, "from_abc");
         assert_eq!(deserialized.to_address, "to_xyz");
+        assert_eq!(deserialized.source_owner_address, None);
         assert_eq!(
             deserialized.transfer_details,
             TransferType::Public { amount: 1 }

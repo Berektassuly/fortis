@@ -5,8 +5,9 @@ use async_trait::async_trait;
 use super::error::AppError;
 use super::types::{
     BlockchainStatus, ComplianceDecision, ComplianceLevel, LastErrorType, PaginatedResponse,
-    SubmitTransferRequest, TransactionStatus, TransferRequest, WalletApproval,
-    WalletApprovalStatus, WalletApprovalSubmission, WalletRiskProfile,
+    SubmitTransferRequest, TokenizeListingRequest, TokenizeListingResult, TransactionStatus,
+    TransferRequest, WalletApproval, WalletApprovalStatus, WalletApprovalSubmission,
+    WalletRiskProfile,
 };
 use chrono::{DateTime, Utc};
 
@@ -300,6 +301,18 @@ pub trait BlockchainClient: Send + Sync {
         Ok(true)
     }
 
+    /// Create a Token-2022 mint, register the Fortis asset metadata,
+    /// mint the planned supply to the seller, and prepare delegated controls.
+    async fn tokenize_listing(
+        &self,
+        request: &TokenizeListingRequest,
+    ) -> Result<TokenizeListingResult, AppError> {
+        let _ = request;
+        Err(AppError::NotSupported(
+            "tokenize_listing not implemented".to_string(),
+        ))
+    }
+
     // =========================================================================
     // Jito Double Spend Protection Methods
     // =========================================================================
@@ -501,6 +514,22 @@ mod tests {
             _request: &TransferRequest,
         ) -> Result<(String, String), AppError> {
             Ok(("sig_123".to_string(), "blockhash_default".to_string()))
+        }
+
+        async fn tokenize_listing(
+            &self,
+            _request: &TokenizeListingRequest,
+        ) -> Result<TokenizeListingResult, AppError> {
+            Ok(TokenizeListingResult {
+                token_mint_address: "mint_123".to_string(),
+                asset_record_pda: "asset_pda_123".to_string(),
+                seller_compliance_record_pda: "seller_compliance_123".to_string(),
+                delegate_wallet_address: "delegate_wallet_123".to_string(),
+                planned_supply: 1,
+                initialize_mint_signature: Some("sig_init_mint".to_string()),
+                initialize_asset_signature: Some("sig_init_asset".to_string()),
+                mint_to_signature: Some("sig_mint_to".to_string()),
+            })
         }
     }
 

@@ -9,10 +9,11 @@ pub use error::{
 };
 pub use traits::{BlockchainClient, ComplianceProvider, DatabaseClient};
 pub use types::{
-    BlockchainStatus, ComplianceDecision, ComplianceLevel, ComplianceStatus, ErrorDetail,
-    ErrorResponse, HealthResponse, HealthStatus, HeliusTransaction, LastErrorType,
+    AssetType, BlockchainStatus, ComplianceDecision, ComplianceLevel, ComplianceStatus,
+    ErrorDetail, ErrorResponse, HealthResponse, HealthStatus, HeliusTransaction, LastErrorType,
     PaginatedResponse, PaginationParams, QuickNodeTransactionMeta, QuickNodeWebhookEvent,
     QuickNodeWebhookPayload, RateLimitResponse, RiskCheckRequest, RiskCheckResult,
-    SubmitTransferRequest, TransactionStatus, TransferRequest, TransferType, WalletApproval,
-    WalletApprovalStatus, WalletApprovalSubmission, WalletRiskProfile,
+    SubmitTransferRequest, TokenizeListingRequest, TokenizeListingResult, TransactionStatus,
+    TransferRequest, TransferType, WalletApproval, WalletApprovalStatus,
+    WalletApprovalSubmission, WalletRiskProfile,
 };

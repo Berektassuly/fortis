@@ -25,12 +25,17 @@ model Listing {
   description      String?
   priceFiat        Float?   @map("price_fiat")
   priceCrypto      Float?   @map("price_crypto")
+  city             String?
+  rooms            Int?
   lat              Float?
   lng              Float?
   area             Float?
   floor            Int?
   images           String[]
+  sellerWalletAddress String? @map("seller_wallet_address")
   tokenMintAddress String?  @unique @map("token_mint_address")
+  tokenizationStatus String @default("draft") @map("tokenization_status")
+  tokenizationError String? @map("tokenization_error")
   ownerId          Int?     @map("owner_id")
   owner            User?    @relation(fields: [ownerId], references: [id])
   orders           Order[]
@@ -39,13 +44,19 @@ model Listing {
 }
 
 model Order {
-  id        Int      @id @default(autoincrement())
-  listingId Int?     @map("listing_id")
-  userId    Int?     @map("user_id")
-  status    String?  @default("Created")
-  txHash    String?  @map("tx_hash")
-  listing   Listing? @relation(fields: [listingId], references: [id])
-  user      User?    @relation(fields: [userId], references: [id])
+  id                Int      @id @default(autoincrement())
+  listingId         Int?     @map("listing_id")
+  userId            Int?     @map("user_id")
+  status            String?  @default("Created")
+  txHash            String?  @map("tx_hash")
+  fortisRequestId   String?  @unique @map("fortis_request_id")
+  buyerWalletAddress String? @map("buyer_wallet_address")
+  sellerWalletAddress String? @map("seller_wallet_address")
+  tokenMintAddress  String?  @map("token_mint_address")
+  nonce             String?  @unique
+  errorMessage      String?  @map("error_message")
+  listing           Listing? @relation(fields: [listingId], references: [id])
+  user              User?    @relation(fields: [userId], references: [id])
 
   @@map("orders")
 }

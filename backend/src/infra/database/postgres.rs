@@ -105,6 +105,7 @@ impl PostgresClient {
             id: row.get("id"),
             from_address: row.get("from_address"),
             to_address: row.get("to_address"),
+            source_owner_address: row.try_get("source_owner_address").ok().flatten(),
             transfer_details: TransferType::Public {
                 amount: amount_opt.unwrap_or_default() as u64,
             },
@@ -182,7 +183,7 @@ impl DatabaseClient for PostgresClient {
     async fn get_transfer_request(&self, id: &str) -> Result<Option<TransferRequest>, AppError> {
         let row = sqlx::query(
             r#"
-            SELECT id, from_address, to_address, amount, token_mint, compliance_status,
+            SELECT id, from_address, to_address, source_owner_address, amount, token_mint, compliance_status,
                    blockchain_status, blockchain_signature, blockchain_retry_count,
                    blockchain_last_error, blockchain_next_retry_at,
                    created_at, updated_at,
@@ -220,15 +221,15 @@ impl DatabaseClient for PostgresClient {
         let row = sqlx::query(
             r#"
             INSERT INTO transfer_requests (
-                id, from_address, to_address, amount, token_mint,
+                id, from_address, to_address, source_owner_address, amount, token_mint,
                 compliance_status, blockchain_status, blockchain_retry_count,
                 created_at, updated_at,
                 nonce, client_signature
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             ON CONFLICT (nonce) WHERE nonce IS NOT NULL
             DO UPDATE SET id = transfer_requests.id
-            RETURNING id, from_address, to_address, amount, token_mint,
+            RETURNING id, from_address, to_address, source_owner_address, amount, token_mint,
                       compliance_status, blockchain_status, blockchain_signature,
                       blockchain_retry_count, blockchain_last_error, blockchain_next_retry_at,
                       created_at, updated_at,
@@ -241,6 +242,7 @@ impl DatabaseClient for PostgresClient {
         .bind(&id)
         .bind(&data.from_address)
         .bind(&data.to_address)
+        .bind(data.source_owner_address.as_deref())
         .bind(*amount as i64)
         .bind(data.token_mint.as_deref())
         .bind(ComplianceStatus::Pending.as_str())
@@ -342,7 +344,7 @@ impl DatabaseClient for PostgresClient {
 
                 sqlx::query(
                     r#"
-                    SELECT id, from_address, to_address, amount, token_mint, compliance_status,
+                    SELECT id, from_address, to_address, source_owner_address, amount, token_mint, compliance_status,
                            blockchain_status, blockchain_signature, blockchain_retry_count,
                            blockchain_last_error, blockchain_next_retry_at,
                            created_at, updated_at,
@@ -365,7 +367,7 @@ impl DatabaseClient for PostgresClient {
             }
             None => sqlx::query(
                 r#"
-                    SELECT id, from_address, to_address, amount, token_mint, compliance_status,
+                    SELECT id, from_address, to_address, source_owner_address, amount, token_mint, compliance_status,
                            blockchain_status, blockchain_signature, blockchain_retry_count,
                            blockchain_last_error, blockchain_next_retry_at,
                            created_at, updated_at,
@@ -660,7 +662,7 @@ impl DatabaseClient for PostgresClient {
                 LIMIT $2
                 FOR UPDATE SKIP LOCKED
             )
-            RETURNING id, from_address, to_address, amount, token_mint, compliance_status,
+            RETURNING id, from_address, to_address, source_owner_address, amount, token_mint, compliance_status,
                       blockchain_status, blockchain_signature, blockchain_retry_count,
                       blockchain_last_error, blockchain_next_retry_at, created_at, updated_at,
                       asset_record_pda, sender_compliance_pda, receiver_compliance_pda,
@@ -704,7 +706,7 @@ impl DatabaseClient for PostgresClient {
     ) -> Result<Option<TransferRequest>, AppError> {
         let row = sqlx::query(
             r#"
-            SELECT id, from_address, to_address, amount, token_mint, compliance_status,
+            SELECT id, from_address, to_address, source_owner_address, amount, token_mint, compliance_status,
                    blockchain_status, blockchain_signature, blockchain_retry_count,
                    blockchain_last_error, blockchain_next_retry_at,
                    created_at, updated_at,
@@ -741,7 +743,7 @@ impl DatabaseClient for PostgresClient {
     ) -> Result<Option<TransferRequest>, AppError> {
         let row = sqlx::query(
             r#"
-            SELECT id, from_address, to_address, amount, token_mint, compliance_status,
+            SELECT id, from_address, to_address, source_owner_address, amount, token_mint, compliance_status,
                    blockchain_status, blockchain_signature, blockchain_retry_count,
                    blockchain_last_error, blockchain_next_retry_at,
                    created_at, updated_at,
@@ -817,7 +819,7 @@ impl DatabaseClient for PostgresClient {
     ) -> Result<Vec<TransferRequest>, AppError> {
         let rows = sqlx::query(
             r#"
-            SELECT id, from_address, to_address, amount, token_mint, compliance_status,
+            SELECT id, from_address, to_address, source_owner_address, amount, token_mint, compliance_status,
                    blockchain_status, blockchain_signature, blockchain_retry_count,
                    blockchain_last_error, blockchain_next_retry_at,
                    created_at, updated_at,

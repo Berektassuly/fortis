@@ -8,6 +8,8 @@ const serverEnvSchema = z.object({
     .optional()
     .transform((value) => (value ? value : undefined)),
   FORTIS_ENGINE_ORDER_PATH: z.string().trim().default("/orders"),
+  FORTIS_ENGINE_TOKENIZE_PATH: z.string().trim().default("/listings/tokenize"),
+  FORTIS_ENGINE_TRANSFER_REQUEST_PATH: z.string().trim().default("/transfer-requests"),
   FORTIS_ENGINE_TOKEN: z
     .string()
     .trim()
@@ -24,6 +26,10 @@ const parsedEnv = serverEnvSchema.safeParse({
   DATABASE_URL: process.env.DATABASE_URL,
   FORTIS_ENGINE_URL: process.env.FORTIS_ENGINE_URL,
   FORTIS_ENGINE_ORDER_PATH: process.env.FORTIS_ENGINE_ORDER_PATH ?? "/orders",
+  FORTIS_ENGINE_TOKENIZE_PATH:
+    process.env.FORTIS_ENGINE_TOKENIZE_PATH ?? "/listings/tokenize",
+  FORTIS_ENGINE_TRANSFER_REQUEST_PATH:
+    process.env.FORTIS_ENGINE_TRANSFER_REQUEST_PATH ?? "/transfer-requests",
   FORTIS_ENGINE_TOKEN: process.env.FORTIS_ENGINE_TOKEN,
   FORTIS_WEBHOOK_SECRET: process.env.FORTIS_WEBHOOK_SECRET,
 });
