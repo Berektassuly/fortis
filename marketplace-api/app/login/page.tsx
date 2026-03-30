@@ -1,3 +1,4 @@
+import { LockKeyhole, Shield, Sparkles } from "lucide-react";
 import { redirect } from "next/navigation";
 
 import AuthForm from "@/components/auth/auth-form";
@@ -16,11 +17,26 @@ interface LoginPageProps {
   };
 }
 
+const featureCards = [
+  {
+    description:
+      "Все операции защищены on-chain комплаенсом и криптографическими подписями.",
+    icon: Shield,
+    title: "Публикация активов",
+  },
+  {
+    description:
+      "Приватные транзакции через Jito-бандлы (Ghost Mode) и защита от MEV-атак.",
+    icon: LockKeyhole,
+    title: "Институциональная безопасность",
+  },
+] as const;
+
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const nextPath = getSafeRedirectPath(searchParams?.next, "/");
   const supabaseConfigured = isSupabaseConfigured();
   const configError = !supabaseConfigured
-    ? "Supabase Auth Ð½Ðµ Ð½Ð°ÑÑ‚Ñ€Ð¾ÐµÐ½ Ð´Ð»Ñ ÑÑ‚Ð¾Ð³Ð¾ Ð´ÐµÐ¿Ð»Ð¾Ñ. Ð”Ð¾Ð±Ð°Ð²ÑŒÑ‚Ðµ NEXT_PUBLIC_SUPABASE_URL Ð¸ NEXT_PUBLIC_SUPABASE_ANON_KEY Ð² Vercel."
+    ? "Supabase Auth не настроен для этого деплоя. Добавьте NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY в Vercel."
     : undefined;
 
   if (supabaseConfigured) {
@@ -35,47 +51,92 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-background">
       <Header />
-      <main className="container mx-auto flex min-h-[calc(100vh-80px)] max-w-5xl items-center px-4 py-8">
-        <div className="grid w-full gap-10 lg:grid-cols-[1.2fr_0.8fr]">
-          <section className="space-y-5">
-            <span className="inline-flex rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-primary">
-              Supabase Auth
-            </span>
-            <div className="space-y-3">
-              <h1 className="neon-text text-3xl font-bold md:text-5xl">Ð’Ñ…Ð¾Ð´ Ð² Fortis Marketplace</h1>
-              <p className="max-w-2xl text-base leading-7 text-muted-foreground md:text-lg">
-                ÐÐ²Ñ‚Ð¾Ñ€Ð¸Ð·ÑƒÐ¹Ñ‚ÐµÑÑŒ Ñ‡ÐµÑ€ÐµÐ· Supabase, Ñ‡Ñ‚Ð¾Ð±Ñ‹ Ð¿ÑƒÐ±Ð»Ð¸ÐºÐ¾Ð²Ð°Ñ‚ÑŒ Ð¾Ð±ÑŠÑÐ²Ð»ÐµÐ½Ð¸Ñ, Ð·Ð°Ð³Ñ€ÑƒÐ¶Ð°Ñ‚ÑŒ Ñ„Ð¾Ñ‚Ð¾ Ð² Storage Ð¸
-                Ñ€Ð°Ð±Ð¾Ñ‚Ð°Ñ‚ÑŒ Ñ marketplace-Ð´Ð°Ð½Ð½Ñ‹Ð¼Ð¸ Ñ‡ÐµÑ€ÐµÐ· Supabase Ð¸ Ð½Ð°Ñ‚Ð¸Ð²Ð½Ñ‹Ð¹ PostgreSQL.
-              </p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="glass rounded-3xl border border-border/40 p-5">
-                <p className="text-sm font-medium text-foreground">ÐŸÑƒÐ±Ð»Ð¸ÐºÐ°Ñ†Ð¸Ñ Ð¾Ð±ÑŠÑÐ²Ð»ÐµÐ½Ð¸Ð¹</p>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  ÐœÐ°Ñ€ÑˆÑ€ÑƒÑ‚ <code>/create</code> Ñ‚ÐµÐ¿ÐµÑ€ÑŒ Ð·Ð°Ñ‰Ð¸Ñ‰ÐµÐ½ middleware Ð¸ Ñ€Ð°Ð±Ð¾Ñ‚Ð°ÐµÑ‚ Ñ‚Ð¾Ð»ÑŒÐºÐ¾ Ð´Ð»Ñ
-                  Ð°Ð²Ñ‚Ð¾Ñ€Ð¸Ð·Ð¾Ð²Ð°Ð½Ð½Ñ‹Ñ… Ð¿Ð¾Ð»ÑŒÐ·Ð¾Ð²Ð°Ñ‚ÐµÐ»ÐµÐ¹.
-                </p>
-              </div>
-              <div className="glass rounded-3xl border border-border/40 p-5">
-                <p className="text-sm font-medium text-foreground">Ð”Ð¾Ð»Ð³Ð¾Ð²ÐµÑ‡Ð½Ñ‹Ðµ Ð¸Ð·Ð¾Ð±Ñ€Ð°Ð¶ÐµÐ½Ð¸Ñ</p>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Ð¤Ð¾Ñ‚Ð¾Ð³Ñ€Ð°Ñ„Ð¸Ð¸ Ð¾Ñ‚Ð¿Ñ€Ð°Ð²Ð»ÑÑŽÑ‚ÑÑ Ð² Ð¿ÑƒÐ±Ð»Ð¸Ñ‡Ð½Ñ‹Ð¹ bucket <code>listings</code> Ð²Ð¼ÐµÑÑ‚Ð¾ Ð²Ñ€ÐµÐ¼ÐµÐ½Ð½Ñ‹Ñ…{" "}
-                  <code>blob:</code> URL.
-                </p>
-              </div>
-            </div>
-          </section>
 
-          <AuthForm
-            nextPath={nextPath}
-            initialEmail={searchParams?.email}
-            initialMode={searchParams?.mode === "signup" ? "signup" : "login"}
-            initialError={searchParams?.error ?? configError}
-            initialMessage={searchParams?.message}
-            disabledReason={configError}
-          />
+      <main className="relative overflow-hidden">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute left-[10%] top-20 h-80 w-80 rounded-full bg-neon-purple/20 blur-[120px]" />
+          <div className="absolute right-[8%] top-28 h-96 w-96 rounded-full bg-neon-blue/15 blur-[140px]" />
+          <div className="absolute bottom-10 left-1/2 h-72 w-[36rem] -translate-x-1/2 rounded-full bg-fuchsia-500/10 blur-[140px]" />
+          <div className="absolute left-1/2 top-24 h-[420px] w-[420px] -translate-x-1/2 rotate-45 rounded-[4rem] border border-white/10 opacity-40 shadow-[0_0_90px_rgba(168,85,247,0.18)]" />
+          <div className="absolute inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_55%)]" />
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 1600 420"
+            className="absolute bottom-12 left-0 h-72 w-full opacity-35"
+            fill="none"
+            preserveAspectRatio="none"
+          >
+            {[0, 26, 52, 78, 104, 130].map((offset) => (
+              <path
+                key={offset}
+                d={`M-80 ${250 - offset}C120 ${180 - offset}, 260 ${170 - offset}, 430 ${
+                  218 - offset
+                }S770 ${286 - offset}, 970 ${222 - offset}S1310 ${176 - offset}, 1680 ${240 - offset}`}
+                stroke="rgba(143,111,255,0.22)"
+                strokeWidth="2"
+              />
+            ))}
+          </svg>
+        </div>
+
+        <div className="container relative mx-auto flex min-h-[calc(100vh-80px)] items-center px-4 py-10 lg:py-16">
+          <div className="grid w-full gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+            <section className="relative overflow-hidden rounded-[2.5rem] border border-white/8 bg-[linear-gradient(180deg,rgba(11,13,28,0.8),rgba(9,11,21,0.45))] px-6 py-8 shadow-[0_30px_120px_rgba(4,6,20,0.65)] sm:px-8 sm:py-10 lg:px-10 lg:py-12">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.07),transparent_48%)]" />
+              <div className="absolute right-6 top-6 rounded-full border border-white/10 bg-white/5 p-3 text-neon-purple shadow-[0_0_28px_rgba(168,85,247,0.22)]">
+                <Sparkles className="h-5 w-5" />
+              </div>
+
+              <div className="relative z-10 space-y-7">
+                <span className="inline-flex rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-xs font-medium uppercase tracking-[0.24em] text-primary">
+                  Fortis Identity Layer
+                </span>
+
+                <div className="space-y-4">
+                  <h1 className="neon-text max-w-3xl text-4xl font-bold leading-tight text-white sm:text-5xl lg:text-[3.7rem] lg:leading-[1.02]">
+                    Вход в Fortis Marketplace
+                  </h1>
+                  <p className="max-w-2xl text-base leading-7 text-white/68 sm:text-lg">
+                    Авторизуйтесь, чтобы получить доступ к институциональным
+                    токенизированным активам, безопасно публиковать RWA-предложения и
+                    управлять своим портфелем.
+                  </p>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {featureCards.map((feature) => {
+                    const Icon = feature.icon;
+
+                    return (
+                      <article
+                        key={feature.title}
+                        className="glass rounded-[1.8rem] border border-purple-500/30 bg-card/35 p-5 transition-all duration-300 hover:border-purple-500/60 hover:shadow-[0_0_30px_rgba(168,85,247,0.16)]"
+                      >
+                        <div className="mb-4 inline-flex rounded-2xl border border-white/10 bg-white/6 p-3 text-neon-purple">
+                          <Icon className="h-5 w-5" />
+                        </div>
+                        <p className="text-sm font-semibold text-white">{feature.title}</p>
+                        <p className="mt-2 text-sm leading-6 text-white/60">
+                          {feature.description}
+                        </p>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+
+            <AuthForm
+              nextPath={nextPath}
+              initialEmail={searchParams?.email}
+              initialMode={searchParams?.mode === "signup" ? "signup" : "login"}
+              initialError={searchParams?.error ?? configError}
+              initialMessage={searchParams?.message}
+              disabledReason={configError}
+            />
+          </div>
         </div>
       </main>
     </div>
