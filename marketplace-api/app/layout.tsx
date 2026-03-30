@@ -13,7 +13,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "Fortis Marketplace",
-  description: "Web2 marketplace for Fortis RWA listings, orders, and webhook orchestration.",
+  description: "Fortis Marketplace for tokenized real-world asset listings and compliant transactions.",
 };
 
 export default function RootLayout({

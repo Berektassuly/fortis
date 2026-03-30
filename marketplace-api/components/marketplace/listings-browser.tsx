@@ -37,8 +37,8 @@ export default function ListingsBrowser({ listings }: ListingsBrowserProps) {
   return (
     <>
       <div className="mb-8">
-        <h1 className="neon-text mb-2 text-3xl font-bold">Недвижимость</h1>
-        <p className="text-muted-foreground">Найдите идеальное жильё</p>
+        <h1 className="neon-text mb-2 text-3xl font-bold">Токенизированные активы</h1>
+        <p className="text-muted-foreground">Откройте для себя предложения Fortis Marketplace</p>
       </div>
 
       <div className="mb-8">
