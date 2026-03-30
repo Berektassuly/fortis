@@ -19,9 +19,9 @@ export default async function HomePage() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-background">
       <Header />
-      <main className="container mx-auto px-4 py-8">
+      <main className="relative overflow-hidden pb-20">
         <ListingsBrowser listings={listings} />
       </main>
     </div>
