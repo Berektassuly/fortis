@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import { toErrorResponse } from "@/lib/route-errors";
 import { createOrder } from "@/lib/services/orders";
 import { ServiceError } from "@/lib/services/service-error";
-import { syncSupabaseAuthUser } from "@/lib/services/users";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
@@ -28,9 +27,8 @@ export async function POST(request: Request) {
       throw new ServiceError(401, "Sign in before placing an order.");
     }
 
-    const prismaUser = await syncSupabaseAuthUser(user);
     const payload = await request.json();
-    const order = await createOrder(payload, prismaUser.id);
+    const order = await createOrder(supabase, payload, user.id);
     return NextResponse.json(order, { status: 201 });
   } catch (error) {
     return toErrorResponse(error, "Failed to create order");

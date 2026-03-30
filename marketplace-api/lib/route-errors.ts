@@ -1,8 +1,24 @@
-import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
+import { AuthError } from "@supabase/supabase-js";
 import { ZodError } from "zod";
 
 import { ServiceError } from "@/lib/services/service-error";
+
+interface PostgrestLikeError {
+  code?: string;
+  details?: string | null;
+  hint?: string | null;
+  message: string;
+}
+
+function isPostgrestLikeError(error: unknown): error is PostgrestLikeError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof (error as { message?: unknown }).message === "string"
+  );
+}
 
 export function toErrorResponse(error: unknown, fallbackMessage = "Internal server error") {
   if (error instanceof ZodError) {
@@ -19,19 +35,17 @@ export function toErrorResponse(error: unknown, fallbackMessage = "Internal serv
     return NextResponse.json({ error: error.message }, { status: error.statusCode });
   }
 
-  if (
-    error instanceof Prisma.PrismaClientKnownRequestError ||
-    error instanceof Prisma.PrismaClientUnknownRequestError
-  ) {
-    const message = error.message.toLowerCase();
+  if (error instanceof AuthError) {
+    return NextResponse.json({ error: error.message }, { status: 401 });
+  }
 
-    if (message.includes("prepared statement") && message.includes("already exists")) {
+  if (isPostgrestLikeError(error)) {
+    if (error.code === "23505") {
       return NextResponse.json(
         {
-          error:
-            "Database pooler configuration is invalid for Prisma. Use the Supabase pooler URL with pgbouncer=true&connection_limit=1.",
+          error: "A database uniqueness constraint was violated.",
         },
-        { status: 503 },
+        { status: 409 },
       );
     }
   }

@@ -4,7 +4,6 @@ import { NextResponse } from "next/server";
 import { toErrorResponse } from "@/lib/route-errors";
 import { createListing, getListings } from "@/lib/services/listings";
 import { ServiceError } from "@/lib/services/service-error";
-import { syncSupabaseAuthUser } from "@/lib/services/users";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
@@ -12,7 +11,8 @@ export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    const listings = await getListings();
+    const supabase = createClient();
+    const listings = await getListings(supabase);
     return NextResponse.json(listings);
   } catch (error) {
     return toErrorResponse(error, "Failed to load listings");
@@ -38,9 +38,8 @@ export async function POST(request: Request) {
       throw new ServiceError(401, "Sign in to publish a Fortis listing.");
     }
 
-    const prismaUser = await syncSupabaseAuthUser(user);
     const payload = await request.json();
-    const listing = await createListing(payload, prismaUser.id);
+    const listing = await createListing(supabase, payload, user.id);
     revalidatePath("/");
     return NextResponse.json(listing, { status: 201 });
   } catch (error) {

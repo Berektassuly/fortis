@@ -20,7 +20,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const nextPath = getSafeRedirectPath(searchParams?.next, "/");
   const supabaseConfigured = isSupabaseConfigured();
   const configError = !supabaseConfigured
-    ? "Supabase Auth не настроен для этого деплоя. Добавьте NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY в Vercel."
+    ? "Supabase Auth Ð½Ðµ Ð½Ð°ÑÑ‚Ñ€Ð¾ÐµÐ½ Ð´Ð»Ñ ÑÑ‚Ð¾Ð³Ð¾ Ð´ÐµÐ¿Ð»Ð¾Ñ. Ð”Ð¾Ð±Ð°Ð²ÑŒÑ‚Ðµ NEXT_PUBLIC_SUPABASE_URL Ð¸ NEXT_PUBLIC_SUPABASE_ANON_KEY Ð² Vercel."
     : undefined;
 
   if (supabaseConfigured) {
@@ -44,24 +44,24 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               Supabase Auth
             </span>
             <div className="space-y-3">
-              <h1 className="neon-text text-3xl font-bold md:text-5xl">Вход в Fortis Marketplace</h1>
+              <h1 className="neon-text text-3xl font-bold md:text-5xl">Ð’Ñ…Ð¾Ð´ Ð² Fortis Marketplace</h1>
               <p className="max-w-2xl text-base leading-7 text-muted-foreground md:text-lg">
-                Авторизуйтесь через Supabase, чтобы публиковать объявления, загружать фото в Storage и
-                создавать записи от имени реального пользователя Prisma.
+                ÐÐ²Ñ‚Ð¾Ñ€Ð¸Ð·ÑƒÐ¹Ñ‚ÐµÑÑŒ Ñ‡ÐµÑ€ÐµÐ· Supabase, Ñ‡Ñ‚Ð¾Ð±Ñ‹ Ð¿ÑƒÐ±Ð»Ð¸ÐºÐ¾Ð²Ð°Ñ‚ÑŒ Ð¾Ð±ÑŠÑÐ²Ð»ÐµÐ½Ð¸Ñ, Ð·Ð°Ð³Ñ€ÑƒÐ¶Ð°Ñ‚ÑŒ Ñ„Ð¾Ñ‚Ð¾ Ð² Storage Ð¸
+                Ñ€Ð°Ð±Ð¾Ñ‚Ð°Ñ‚ÑŒ Ñ marketplace-Ð´Ð°Ð½Ð½Ñ‹Ð¼Ð¸ Ñ‡ÐµÑ€ÐµÐ· Supabase Ð¸ Ð½Ð°Ñ‚Ð¸Ð²Ð½Ñ‹Ð¹ PostgreSQL.
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="glass rounded-3xl border border-border/40 p-5">
-                <p className="text-sm font-medium text-foreground">Публикация объявлений</p>
+                <p className="text-sm font-medium text-foreground">ÐŸÑƒÐ±Ð»Ð¸ÐºÐ°Ñ†Ð¸Ñ Ð¾Ð±ÑŠÑÐ²Ð»ÐµÐ½Ð¸Ð¹</p>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Маршрут <code>/create</code> теперь защищен middleware и работает только для
-                  авторизованных пользователей.
+                  ÐœÐ°Ñ€ÑˆÑ€ÑƒÑ‚ <code>/create</code> Ñ‚ÐµÐ¿ÐµÑ€ÑŒ Ð·Ð°Ñ‰Ð¸Ñ‰ÐµÐ½ middleware Ð¸ Ñ€Ð°Ð±Ð¾Ñ‚Ð°ÐµÑ‚ Ñ‚Ð¾Ð»ÑŒÐºÐ¾ Ð´Ð»Ñ
+                  Ð°Ð²Ñ‚Ð¾Ñ€Ð¸Ð·Ð¾Ð²Ð°Ð½Ð½Ñ‹Ñ… Ð¿Ð¾Ð»ÑŒÐ·Ð¾Ð²Ð°Ñ‚ÐµÐ»ÐµÐ¹.
                 </p>
               </div>
               <div className="glass rounded-3xl border border-border/40 p-5">
-                <p className="text-sm font-medium text-foreground">Долговечные изображения</p>
+                <p className="text-sm font-medium text-foreground">Ð”Ð¾Ð»Ð³Ð¾Ð²ÐµÑ‡Ð½Ñ‹Ðµ Ð¸Ð·Ð¾Ð±Ñ€Ð°Ð¶ÐµÐ½Ð¸Ñ</p>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Фотографии отправляются в публичный bucket <code>listings</code> вместо временных{" "}
+                  Ð¤Ð¾Ñ‚Ð¾Ð³Ñ€Ð°Ñ„Ð¸Ð¸ Ð¾Ñ‚Ð¿Ñ€Ð°Ð²Ð»ÑÑŽÑ‚ÑÑ Ð² Ð¿ÑƒÐ±Ð»Ð¸Ñ‡Ð½Ñ‹Ð¹ bucket <code>listings</code> Ð²Ð¼ÐµÑÑ‚Ð¾ Ð²Ñ€ÐµÐ¼ÐµÐ½Ð½Ñ‹Ñ…{" "}
                   <code>blob:</code> URL.
                 </p>
               </div>

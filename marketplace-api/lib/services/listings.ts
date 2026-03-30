@@ -1,23 +1,28 @@
-import { Prisma } from "@prisma/client";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { PublicKey } from "@solana/web3.js";
 
-import { prisma } from "@/lib/prisma";
 import { toListingDto, type ListingDto } from "@/lib/dto/listing";
 import { tokenizeListingWithFortis } from "@/lib/services/fortis-client";
 import { ServiceError } from "@/lib/services/service-error";
+import { requireMarketplaceUser } from "@/lib/services/users";
+import type { Database } from "@/lib/supabase/database.types";
 import { createListingRequestSchema } from "@/lib/validators/listings";
 
-export async function getListings(): Promise<ListingDto[]> {
-  const listings = await prisma.listing.findMany({
-    where: {
-      tokenizationStatus: "active",
-    },
-    orderBy: {
-      id: "desc",
-    },
-  });
+const LISTING_SELECT =
+  "id,title,price_fiat,description,images,city,rooms,token_mint_address,tokenization_status";
 
-  return listings.map(toListingDto);
+export async function getListings(supabase: SupabaseClient<Database>): Promise<ListingDto[]> {
+  const { data, error } = await supabase
+    .from("listings")
+    .select(LISTING_SELECT)
+    .eq("tokenization_status", "active")
+    .order("id", { ascending: false });
+
+  if (error) {
+    throw new ServiceError(500, error.message);
+  }
+
+  return (data ?? []).map(toListingDto);
 }
 
 function normalizeWalletAddress(walletAddress: string) {
@@ -31,21 +36,13 @@ function normalizeWalletAddress(walletAddress: string) {
   }
 }
 
-export async function createListing(input: unknown, ownerId: number): Promise<ListingDto> {
+export async function createListing(
+  supabase: SupabaseClient<Database>,
+  input: unknown,
+  ownerAuthUserId: string,
+): Promise<ListingDto> {
   const data = createListingRequestSchema.parse(input);
-  const owner = await prisma.user.findUnique({
-    where: {
-      id: ownerId,
-    },
-    select: {
-      id: true,
-      solanaWalletAddress: true,
-    },
-  });
-
-  if (!owner) {
-    throw new ServiceError(404, `User ${ownerId} was not found.`);
-  }
+  const owner = await requireMarketplaceUser(supabase, ownerAuthUserId);
 
   if (!owner.solanaWalletAddress) {
     throw new ServiceError(409, "Connect and link your Solana wallet before publishing a listing.");
@@ -60,95 +57,78 @@ export async function createListing(input: unknown, ownerId: number): Promise<Li
     );
   }
 
-  let lastError: unknown;
+  const { data: listing, error: insertError } = await supabase
+    .from("listings")
+    .insert({
+      title: data.title,
+      description: data.description ?? null,
+      price_fiat: data.price,
+      city: data.city ?? null,
+      rooms: data.rooms ?? null,
+      owner_id: owner.id,
+      seller_wallet_address: owner.solanaWalletAddress,
+      tokenization_status: "tokenizing",
+      images: data.photo ? [data.photo] : [],
+    })
+    .select("id,title,description,price_fiat,city,images")
+    .single();
 
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const highestListing = await prisma.listing.findFirst({
-      select: {
-        id: true,
-      },
-      orderBy: {
-        id: "desc",
-      },
-    });
-
-    try {
-      const listing = await prisma.listing.create({
-        data: {
-          id: (highestListing?.id ?? 0) + 1,
-          title: data.title,
-          description: data.description ?? null,
-          priceFiat: data.price,
-          city: data.city ?? null,
-          rooms: data.rooms ?? null,
-          ownerId,
-          sellerWalletAddress: owner.solanaWalletAddress,
-          tokenizationStatus: "tokenizing",
-          images: data.photo ? [data.photo] : [],
-        },
-      });
-
-      try {
-        const tokenization = await tokenizeListingWithFortis({
-          city: listing.city,
-          description: listing.description,
-          imageUrl: listing.images[0] ?? null,
-          listingId: listing.id,
-          priceFiat: listing.priceFiat ?? 0,
-          sellerWalletAddress: owner.solanaWalletAddress,
-          title: listing.title ?? `Listing #${listing.id}`,
-        });
-
-        const activatedListing = await prisma.listing.update({
-          where: {
-            id: listing.id,
-          },
-          data: {
-            sellerWalletAddress: owner.solanaWalletAddress,
-            tokenMintAddress: tokenization.tokenMintAddress,
-            tokenizationError: null,
-            tokenizationStatus: "active",
-          },
-        });
-
-        return toListingDto(activatedListing);
-      } catch (error) {
-        await prisma.listing.update({
-          where: {
-            id: listing.id,
-          },
-          data: {
-            tokenizationError:
-              error instanceof Error ? error.message : "Listing tokenization failed.",
-            tokenizationStatus: "failed",
-          },
-        });
-
-        throw new ServiceError(
-          502,
-          error instanceof Error
-            ? error.message
-            : "Listing tokenization failed before publish could complete.",
-        );
-      }
-    } catch (error) {
-      lastError = error;
-
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === "P2002" &&
-        Array.isArray(error.meta?.target) &&
-        error.meta.target.includes("id")
-      ) {
-        continue;
-      }
-
-      throw error;
-    }
+  if (insertError) {
+    throw new ServiceError(500, insertError.message);
   }
 
-  throw new ServiceError(
-    500,
-    lastError instanceof Error ? lastError.message : "Failed to create listing after multiple retries.",
-  );
+  if (!listing) {
+    throw new ServiceError(500, "Failed to create the Fortis listing.");
+  }
+
+  try {
+    const tokenization = await tokenizeListingWithFortis({
+      city: listing.city,
+      description: listing.description,
+      imageUrl: Array.isArray(listing.images) ? listing.images[0] ?? null : null,
+      listingId: listing.id,
+      priceFiat: Number(listing.price_fiat ?? 0),
+      sellerWalletAddress: owner.solanaWalletAddress,
+      title: listing.title ?? `Listing #${listing.id}`,
+    });
+
+    const { data: activatedListing, error: updateError } = await supabase
+      .from("listings")
+      .update({
+        seller_wallet_address: owner.solanaWalletAddress,
+        token_mint_address: tokenization.tokenMintAddress,
+        tokenization_error: null,
+        tokenization_status: "active",
+      })
+      .eq("id", listing.id)
+      .select(LISTING_SELECT)
+      .single();
+
+    if (updateError) {
+      throw new ServiceError(500, updateError.message);
+    }
+
+    if (!activatedListing) {
+      throw new ServiceError(500, "Failed to finalize the tokenized listing.");
+    }
+
+    return toListingDto(activatedListing);
+  } catch (error) {
+    const failureMessage =
+      error instanceof Error ? error.message : "Listing tokenization failed.";
+
+    const { error: markFailedError } = await supabase
+      .from("listings")
+      .update({
+        tokenization_error: failureMessage,
+        tokenization_status: "failed",
+      })
+      .eq("id", listing.id);
+
+    if (markFailedError) {
+      console.error("Failed to mark listing tokenization failure", markFailedError);
+    }
+
+    throw new ServiceError(502, failureMessage);
+  }
 }

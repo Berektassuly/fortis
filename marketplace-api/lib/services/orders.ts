@@ -1,7 +1,6 @@
-import { Prisma } from "@prisma/client";
+import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { PublicKey } from "@solana/web3.js";
 
-import { prisma } from "@/lib/prisma";
 import { toOrderDto, toOrderResult, type OrderDto, type OrderResult } from "@/lib/dto/order";
 import {
   getFortisTransferRequest,
@@ -9,8 +8,19 @@ import {
   type FortisTransferRequestResult,
 } from "@/lib/services/fortis-client";
 import { ServiceError } from "@/lib/services/service-error";
+import { requireMarketplaceUser } from "@/lib/services/users";
+import type { Database, OrderStatus } from "@/lib/supabase/database.types";
 import { createOrderRequestSchema } from "@/lib/validators/orders";
 import { fortisSuccessWebhookSchema } from "@/lib/validators/webhooks";
+
+const ORDER_SELECT =
+  "id,listing_id,user_id,status,tx_hash,fortis_request_id,error_message";
+
+interface OrderStatusUpdate {
+  errorMessage: string | null;
+  status: OrderStatus;
+  txHash: string | null;
+}
 
 function normalizeWalletAddress(walletAddress: string) {
   try {
@@ -23,7 +33,40 @@ function normalizeWalletAddress(walletAddress: string) {
   }
 }
 
-function mapFortisTransferToOrderUpdate(transferRequest: FortisTransferRequestResult) {
+function normalizeOrderStatus(status: string | null | undefined): OrderStatus {
+  switch (status?.trim().toLowerCase()) {
+    case "created":
+      return "Created";
+    case "pending":
+      return "Pending";
+    case "processing":
+      return "Processing";
+    case "completed":
+    case "success":
+      return "Success";
+    case "failed":
+      return "Failed";
+    default:
+      return "Pending";
+  }
+}
+
+function isUniqueViolation(error: PostgrestError | null, columnName?: string) {
+  if (!error || error.code !== "23505") {
+    return false;
+  }
+
+  if (!columnName) {
+    return true;
+  }
+
+  const details = `${error.details ?? ""} ${error.message}`.toLowerCase();
+  return details.includes(columnName.toLowerCase());
+}
+
+function mapFortisTransferToOrderUpdate(
+  transferRequest: FortisTransferRequestResult,
+): OrderStatusUpdate {
   const blockchainStatus = transferRequest.blockchain_status.toLowerCase();
   const complianceStatus = transferRequest.compliance_status.toLowerCase();
 
@@ -65,53 +108,46 @@ function mapFortisTransferToOrderUpdate(transferRequest: FortisTransferRequestRe
 
   return {
     errorMessage: null,
-    status: "Pending",
+    status: "Pending" as OrderStatus,
     txHash: transferRequest.blockchain_signature ?? null,
   };
 }
 
-export async function createOrder(input: unknown, userId: number): Promise<OrderResult> {
+export async function createOrder(
+  supabase: SupabaseClient<Database>,
+  input: unknown,
+  userAuthUserId: string,
+): Promise<OrderResult> {
   const data = createOrderRequestSchema.parse(input);
+  const user = await requireMarketplaceUser(supabase, userAuthUserId);
 
-  const [listing, user] = await Promise.all([
-    prisma.listing.findUnique({
-      where: { id: data.listingId },
-      select: {
-        id: true,
-        ownerId: true,
-        priceFiat: true,
-        sellerWalletAddress: true,
-        tokenMintAddress: true,
-        tokenizationStatus: true,
-      },
-    }),
-    prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, solanaWalletAddress: true },
-    }),
-  ]);
+  const { data: listing, error: listingError } = await supabase
+    .from("listings")
+    .select("id,owner_id,price_fiat,seller_wallet_address,token_mint_address,tokenization_status")
+    .eq("id", data.listingId)
+    .maybeSingle();
+
+  if (listingError) {
+    throw new ServiceError(500, listingError.message);
+  }
 
   if (!listing) {
     throw new ServiceError(404, `Listing ${data.listingId} was not found.`);
-  }
-
-  if (!user) {
-    throw new ServiceError(404, `User ${userId} was not found.`);
   }
 
   if (!user.solanaWalletAddress) {
     throw new ServiceError(409, "Connect and link your Solana wallet before placing an order.");
   }
 
-  if (!listing.ownerId || !listing.sellerWalletAddress || !listing.tokenMintAddress) {
+  if (!listing.owner_id || !listing.seller_wallet_address || !listing.token_mint_address) {
     throw new ServiceError(409, "This listing is not fully tokenized yet.");
   }
 
-  if (listing.tokenizationStatus !== "active") {
+  if (listing.tokenization_status !== "active") {
     throw new ServiceError(409, "This listing is still being prepared for trading.");
   }
 
-  if (listing.ownerId === user.id) {
+  if (listing.owner_id === user.id) {
     throw new ServiceError(409, "You cannot buy your own listing in the demo flow.");
   }
 
@@ -127,7 +163,7 @@ export async function createOrder(input: unknown, userId: number): Promise<Order
     );
   }
 
-  if (intentMint !== listing.tokenMintAddress) {
+  if (intentMint !== listing.token_mint_address) {
     throw new ServiceError(400, "The signed mint does not match this listing.");
   }
 
@@ -135,119 +171,143 @@ export async function createOrder(input: unknown, userId: number): Promise<Order
     throw new ServiceError(400, "This demo purchase flow currently transfers exactly 1 asset token.");
   }
 
-  let order: Awaited<ReturnType<typeof prisma.order.create>> | null = null;
+  const { data: order, error: insertError } = await supabase
+    .from("orders")
+    .insert({
+      listing_id: listing.id,
+      user_id: user.id,
+      buyer_wallet_address: buyerWalletAddress,
+      nonce: data.transferIntent.nonce,
+      seller_wallet_address: listing.seller_wallet_address,
+      status: "Pending",
+      token_mint_address: listing.token_mint_address,
+    })
+    .select(ORDER_SELECT)
+    .single();
 
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const highestOrder = await prisma.order.findFirst({
-      select: {
-        id: true,
-      },
-      orderBy: {
-        id: "desc",
-      },
-    });
+  if (isUniqueViolation(insertError, "nonce")) {
+    throw new ServiceError(409, "This signed purchase intent was already submitted.");
+  }
 
-    try {
-      order = await prisma.order.create({
-        data: {
-          id: (highestOrder?.id ?? 0) + 1,
-          listingId: listing.id,
-          userId: user.id,
-          buyerWalletAddress,
-          nonce: data.transferIntent.nonce,
-          sellerWalletAddress: listing.sellerWalletAddress,
-          status: "Pending",
-          tokenMintAddress: listing.tokenMintAddress,
-        },
-      });
-      break;
-    } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === "P2002" &&
-        Array.isArray(error.meta?.target) &&
-        error.meta.target.includes("id")
-      ) {
-        continue;
-      }
-
-      throw error;
-    }
+  if (insertError) {
+    throw new ServiceError(500, insertError.message);
   }
 
   if (!order) {
-    throw new ServiceError(500, "Failed to create order after multiple retries.");
+    throw new ServiceError(500, "Failed to create the Fortis order.");
   }
 
   try {
     const fortisTransfer = await submitTransferRequestToFortis({
       amount: data.transferIntent.amount,
       from_address: buyerWalletAddress,
-      mint: listing.tokenMintAddress,
+      mint: listing.token_mint_address,
       nonce: data.transferIntent.nonce,
       signature: data.transferIntent.signature,
-      source_owner_address: listing.sellerWalletAddress,
+      source_owner_address: listing.seller_wallet_address,
       to_address: buyerWalletAddress,
     });
 
     const mappedStatus = mapFortisTransferToOrderUpdate(fortisTransfer);
-    const updatedOrder = await prisma.order.update({
-      where: {
-        id: order.id,
-      },
-      data: {
-        errorMessage: mappedStatus.errorMessage,
-        fortisRequestId: fortisTransfer.id,
+    const { data: updatedOrder, error: updateError } = await supabase
+      .from("orders")
+      .update({
+        error_message: mappedStatus.errorMessage,
+        fortis_request_id: fortisTransfer.id,
         status: mappedStatus.status,
-        txHash: mappedStatus.txHash,
-      },
-    });
+        tx_hash: mappedStatus.txHash,
+      })
+      .eq("id", order.id)
+      .select(ORDER_SELECT)
+      .single();
+
+    if (updateError) {
+      throw new ServiceError(500, updateError.message);
+    }
+
+    if (!updatedOrder) {
+      throw new ServiceError(500, "Failed to persist the Fortis transfer request.");
+    }
 
     return toOrderResult(updatedOrder, true, fortisTransfer.id);
   } catch (error) {
     console.error("Failed to dispatch Fortis order intent", error);
 
-    const failedOrder = await prisma.order.update({
-      where: {
-        id: order.id,
-      },
-      data: {
-        errorMessage: error instanceof Error ? error.message : "Failed to submit the purchase intent.",
+    const { data: failedOrder, error: failedOrderError } = await supabase
+      .from("orders")
+      .update({
+        error_message:
+          error instanceof Error ? error.message : "Failed to submit the purchase intent.",
         status: "Failed",
-      },
-    });
+      })
+      .eq("id", order.id)
+      .select(ORDER_SELECT)
+      .single();
+
+    if (failedOrderError) {
+      throw new ServiceError(500, failedOrderError.message);
+    }
+
+    if (!failedOrder) {
+      throw new ServiceError(500, "Failed to persist the failed Fortis order.");
+    }
 
     return toOrderResult(failedOrder, false, null);
   }
 }
 
-export async function getOrderForUser(orderId: number, userId: number): Promise<OrderDto> {
-  let order = await prisma.order.findFirst({
-    where: {
-      id: orderId,
-      userId,
-    },
-  });
+export async function getOrderForUser(
+  supabase: SupabaseClient<Database>,
+  orderId: number,
+  userAuthUserId: string,
+): Promise<OrderDto> {
+  const user = await requireMarketplaceUser(supabase, userAuthUserId);
+  const { data: existingOrder, error: orderError } = await supabase
+    .from("orders")
+    .select(ORDER_SELECT)
+    .eq("id", orderId)
+    .eq("user_id", user.id)
+    .maybeSingle();
 
-  if (!order) {
+  if (orderError) {
+    throw new ServiceError(500, orderError.message);
+  }
+
+  if (!existingOrder) {
     throw new ServiceError(404, `Order ${orderId} was not found.`);
   }
 
-  if (order.fortisRequestId && order.status !== "Success" && order.status !== "Failed") {
+  let order = existingOrder;
+
+  if (
+    order.fortis_request_id &&
+    order.status !== "Success" &&
+    order.status !== "Failed"
+  ) {
     try {
-      const fortisTransfer = await getFortisTransferRequest(order.fortisRequestId);
+      const fortisTransfer = await getFortisTransferRequest(order.fortis_request_id);
       const mappedStatus = mapFortisTransferToOrderUpdate(fortisTransfer);
 
-      order = await prisma.order.update({
-        where: {
-          id: order.id,
-        },
-        data: {
-          errorMessage: mappedStatus.errorMessage,
+      const { data: refreshedOrder, error: refreshError } = await supabase
+        .from("orders")
+        .update({
+          error_message: mappedStatus.errorMessage,
           status: mappedStatus.status,
-          txHash: mappedStatus.txHash,
-        },
-      });
+          tx_hash: mappedStatus.txHash,
+        })
+        .eq("id", order.id)
+        .select(ORDER_SELECT)
+        .single();
+
+      if (!refreshError) {
+        if (!refreshedOrder) {
+          throw new ServiceError(500, "Failed to refresh the Fortis order state.");
+        }
+
+        order = refreshedOrder;
+      } else {
+        console.error("Failed to persist refreshed Fortis transfer request", refreshError);
+      }
     } catch (error) {
       console.error("Failed to refresh Fortis transfer request", error);
     }
@@ -256,28 +316,30 @@ export async function getOrderForUser(orderId: number, userId: number): Promise<
   return toOrderDto(order);
 }
 
-export async function applyFortisSuccessWebhook(input: unknown): Promise<OrderDto> {
+export async function applyFortisSuccessWebhook(
+  supabase: SupabaseClient<Database>,
+  input: unknown,
+): Promise<OrderDto> {
   const data = fortisSuccessWebhookSchema.parse(input);
 
-  const existingOrder = await prisma.order.findUnique({
-    where: { id: data.orderId },
-    select: { id: true },
-  });
+  const { data: updatedOrder, error } = await supabase
+    .from("orders")
+    .update({
+      error_message: null,
+      status: normalizeOrderStatus(data.status),
+      tx_hash: data.txHash ?? null,
+    })
+    .eq("id", data.orderId)
+    .select(ORDER_SELECT)
+    .maybeSingle();
 
-  if (!existingOrder) {
-    throw new ServiceError(404, `Order ${data.orderId} was not found.`);
+  if (error) {
+    throw new ServiceError(500, error.message);
   }
 
-  const updatedOrder = await prisma.order.update({
-    where: {
-      id: data.orderId,
-    },
-    data: {
-      errorMessage: null,
-      status: data.status,
-      txHash: data.txHash ?? null,
-    },
-  });
+  if (!updatedOrder) {
+    throw new ServiceError(404, `Order ${data.orderId} was not found.`);
+  }
 
   return toOrderDto(updatedOrder);
 }

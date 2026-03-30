@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { toErrorResponse } from "@/lib/route-errors";
-import { bindSolanaWalletAddress, syncSupabaseAuthUser } from "@/lib/services/users";
+import { bindSolanaWalletAddress, requireMarketplaceUser } from "@/lib/services/users";
 import { ServiceError } from "@/lib/services/service-error";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
@@ -13,7 +13,7 @@ const bindWalletSchema = z.object({
   walletAddress: z.string().trim().min(1),
 });
 
-async function requireMarketplaceUser() {
+async function requireAuthenticatedMarketplaceContext() {
   if (!isSupabaseConfigured()) {
     throw new ServiceError(
       503,
@@ -32,19 +32,20 @@ async function requireMarketplaceUser() {
   }
 
   return {
-    prismaUser: await syncSupabaseAuthUser(user),
-    supabaseUser: user,
+    marketplaceUser: await requireMarketplaceUser(supabase, user.id),
+    supabase,
+    supabaseUserId: user.id,
   };
 }
 
 export async function GET() {
   try {
-    const { prismaUser } = await requireMarketplaceUser();
+    const { marketplaceUser } = await requireAuthenticatedMarketplaceContext();
 
     return NextResponse.json({
-      id: prismaUser.id,
-      email: prismaUser.email,
-      solanaWalletAddress: prismaUser.solanaWalletAddress,
+      id: marketplaceUser.id,
+      email: marketplaceUser.email,
+      solanaWalletAddress: marketplaceUser.solanaWalletAddress,
     });
   } catch (error) {
     return toErrorResponse(error, "Failed to resolve the current marketplace wallet");
@@ -53,14 +54,18 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const { supabaseUser } = await requireMarketplaceUser();
+    const { supabase, supabaseUserId } = await requireAuthenticatedMarketplaceContext();
     const payload = bindWalletSchema.parse(await request.json());
-    const prismaUser = await bindSolanaWalletAddress(supabaseUser, payload.walletAddress);
+    const marketplaceUser = await bindSolanaWalletAddress(
+      supabase,
+      supabaseUserId,
+      payload.walletAddress,
+    );
 
     return NextResponse.json({
-      id: prismaUser.id,
-      email: prismaUser.email,
-      solanaWalletAddress: prismaUser.solanaWalletAddress,
+      id: marketplaceUser.id,
+      email: marketplaceUser.email,
+      solanaWalletAddress: marketplaceUser.solanaWalletAddress,
     });
   } catch (error) {
     return toErrorResponse(error, "Failed to bind the connected wallet");

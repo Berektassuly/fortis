@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import { toErrorResponse } from "@/lib/route-errors";
 import { getOrderForUser } from "@/lib/services/orders";
 import { ServiceError } from "@/lib/services/service-error";
-import { syncSupabaseAuthUser } from "@/lib/services/users";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
@@ -37,8 +36,7 @@ export async function GET(
       throw new ServiceError(401, "Sign in before checking order status.");
     }
 
-    const prismaUser = await syncSupabaseAuthUser(user);
-    const order = await getOrderForUser(orderId, prismaUser.id);
+    const order = await getOrderForUser(supabase, orderId, user.id);
     return NextResponse.json(order);
   } catch (error) {
     return toErrorResponse(error, "Failed to load the Fortis order");

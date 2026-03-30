@@ -18,17 +18,6 @@ interface AuthFormProps {
   nextPath: string;
 }
 
-async function syncCurrentUser() {
-  const response = await fetch("/api/auth/sync-user", {
-    method: "POST",
-  });
-
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? "Не удалось подготовить профиль пользователя.");
-  }
-}
-
 export default function AuthForm({
   disabledReason,
   initialEmail,
@@ -62,12 +51,12 @@ export default function AuthForm({
     }
 
     if (!email.trim() || !password.trim()) {
-      toast.error("Введите email и пароль.");
+      toast.error("Ð’Ð²ÐµÐ´Ð¸Ñ‚Ðµ email Ð¸ Ð¿Ð°Ñ€Ð¾Ð»ÑŒ.");
       return;
     }
 
     if (mode === "signup" && password.length < 6) {
-      toast.error("Пароль должен содержать минимум 6 символов.");
+      toast.error("ÐŸÐ°Ñ€Ð¾Ð»ÑŒ Ð´Ð¾Ð»Ð¶ÐµÐ½ ÑÐ¾Ð´ÐµÑ€Ð¶Ð°Ñ‚ÑŒ Ð¼Ð¸Ð½Ð¸Ð¼ÑƒÐ¼ 6 ÑÐ¸Ð¼Ð²Ð¾Ð»Ð¾Ð².");
       return;
     }
 
@@ -86,8 +75,7 @@ export default function AuthForm({
           throw error;
         }
 
-        await syncCurrentUser();
-        toast.success("Вы вошли в аккаунт.");
+        toast.success("Ð’Ñ‹ Ð²Ð¾ÑˆÐ»Ð¸ Ð² Ð°ÐºÐºÐ°ÑƒÐ½Ñ‚.");
         router.replace(nextPath);
         router.refresh();
         return;
@@ -109,8 +97,7 @@ export default function AuthForm({
       }
 
       if (data.session) {
-        await syncCurrentUser();
-        toast.success("Аккаунт создан, вход выполнен автоматически.");
+        toast.success("ÐÐºÐºÐ°ÑƒÐ½Ñ‚ ÑÐ¾Ð·Ð´Ð°Ð½, Ð²Ñ…Ð¾Ð´ Ð²Ñ‹Ð¿Ð¾Ð»Ð½ÐµÐ½ Ð°Ð²Ñ‚Ð¾Ð¼Ð°Ñ‚Ð¸Ñ‡ÐµÑÐºÐ¸.");
         router.replace(nextPath);
         router.refresh();
         return;
@@ -118,10 +105,10 @@ export default function AuthForm({
 
       setMode("login");
       setPassword("");
-      toast.success("Проверьте почту и подтвердите регистрацию по ссылке из письма.");
+      toast.success("ÐŸÑ€Ð¾Ð²ÐµÑ€ÑŒÑ‚Ðµ Ð¿Ð¾Ñ‡Ñ‚Ñƒ Ð¸ Ð¿Ð¾Ð´Ñ‚Ð²ÐµÑ€Ð´Ð¸Ñ‚Ðµ Ñ€ÐµÐ³Ð¸ÑÑ‚Ñ€Ð°Ñ†Ð¸ÑŽ Ð¿Ð¾ ÑÑÑ‹Ð»ÐºÐµ Ð¸Ð· Ð¿Ð¸ÑÑŒÐ¼Ð°.");
     } catch (error) {
       console.error(error);
-      toast.error(error instanceof Error ? error.message : "Не удалось выполнить авторизацию.");
+      toast.error(error instanceof Error ? error.message : "ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð²Ñ‹Ð¿Ð¾Ð»Ð½Ð¸Ñ‚ÑŒ Ð°Ð²Ñ‚Ð¾Ñ€Ð¸Ð·Ð°Ñ†Ð¸ÑŽ.");
     } finally {
       setIsSubmitting(false);
     }
@@ -134,12 +121,12 @@ export default function AuthForm({
     <section className="glass rounded-[2rem] border border-border/40 p-6 shadow-2xl shadow-background/30">
       <div className="mb-6 space-y-2">
         <h2 className="text-2xl font-semibold text-foreground">
-          {mode === "login" ? "Вход" : "Регистрация"}
+          {mode === "login" ? "Ð’Ñ…Ð¾Ð´" : "Ð ÐµÐ³Ð¸ÑÑ‚Ñ€Ð°Ñ†Ð¸Ñ"}
         </h2>
         <p className="text-sm leading-6 text-muted-foreground">
           {mode === "login"
-            ? "Войдите, чтобы создавать объявления и загружать изображения в Supabase Storage."
-            : "Создайте аккаунт по email и паролю. После регистрации мы свяжем Supabase-пользователя с Prisma."}
+            ? "Ð’Ð¾Ð¹Ð´Ð¸Ñ‚Ðµ, Ñ‡Ñ‚Ð¾Ð±Ñ‹ ÑÐ¾Ð·Ð´Ð°Ð²Ð°Ñ‚ÑŒ Ð¾Ð±ÑŠÑÐ²Ð»ÐµÐ½Ð¸Ñ Ð¸ Ð·Ð°Ð³Ñ€ÑƒÐ¶Ð°Ñ‚ÑŒ Ð¸Ð·Ð¾Ð±Ñ€Ð°Ð¶ÐµÐ½Ð¸Ñ Ð² Supabase Storage."
+            : "Ð¡Ð¾Ð·Ð´Ð°Ð¹Ñ‚Ðµ Ð°ÐºÐºÐ°ÑƒÐ½Ñ‚ Ð¿Ð¾ email Ð¸ Ð¿Ð°Ñ€Ð¾Ð»ÑŽ. ÐŸÑ€Ð¾Ñ„Ð¸Ð»ÑŒ marketplace Ð±ÑƒÐ´ÐµÑ‚ ÑÐ¾Ð·Ð´Ð°Ð½ Ð°Ð²Ñ‚Ð¾Ð¼Ð°Ñ‚Ð¸Ñ‡ÐµÑÐºÐ¸ Ð½Ð° ÑÑ‚Ð¾Ñ€Ð¾Ð½Ðµ Postgres."}
         </p>
       </div>
 
@@ -169,7 +156,7 @@ export default function AuthForm({
 
         <div className="space-y-2">
           <label htmlFor="password" className="text-sm font-medium text-foreground">
-            Пароль
+            ÐŸÐ°Ñ€Ð¾Ð»ÑŒ
           </label>
           <input
             id="password"
@@ -177,7 +164,7 @@ export default function AuthForm({
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             className={inputClass}
-            placeholder="Минимум 6 символов"
+            placeholder="ÐœÐ¸Ð½Ð¸Ð¼ÑƒÐ¼ 6 ÑÐ¸Ð¼Ð²Ð¾Ð»Ð¾Ð²"
             autoComplete={mode === "login" ? "current-password" : "new-password"}
             minLength={6}
             disabled={Boolean(disabledReason)}
@@ -193,24 +180,24 @@ export default function AuthForm({
           {isSubmitting ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
-              {mode === "login" ? "Вход..." : "Создание аккаунта..."}
+              {mode === "login" ? "Ð’Ñ…Ð¾Ð´..." : "Ð¡Ð¾Ð·Ð´Ð°Ð½Ð¸Ðµ Ð°ÐºÐºÐ°ÑƒÐ½Ñ‚Ð°..."}
             </>
           ) : mode === "login" ? (
-            "Войти"
+            "Ð’Ð¾Ð¹Ñ‚Ð¸"
           ) : (
-            "Создать аккаунт"
+            "Ð¡Ð¾Ð·Ð´Ð°Ñ‚ÑŒ Ð°ÐºÐºÐ°ÑƒÐ½Ñ‚"
           )}
         </button>
       </form>
 
       <div className="mt-5 flex items-center justify-between gap-4 text-sm text-muted-foreground">
-        <span>{mode === "login" ? "Нет аккаунта?" : "Уже есть аккаунт?"}</span>
+        <span>{mode === "login" ? "ÐÐµÑ‚ Ð°ÐºÐºÐ°ÑƒÐ½Ñ‚Ð°?" : "Ð£Ð¶Ðµ ÐµÑÑ‚ÑŒ Ð°ÐºÐºÐ°ÑƒÐ½Ñ‚?"}</span>
         <button
           type="button"
           onClick={() => setMode((current) => (current === "login" ? "signup" : "login"))}
           className="font-medium text-primary transition-colors hover:text-primary/80"
         >
-          {mode === "login" ? "Регистрация" : "Войти"}
+          {mode === "login" ? "Ð ÐµÐ³Ð¸ÑÑ‚Ñ€Ð°Ñ†Ð¸Ñ" : "Ð’Ð¾Ð¹Ñ‚Ð¸"}
         </button>
       </div>
     </section>

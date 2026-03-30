@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 const serverEnvSchema = z.object({
-  DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   FORTIS_ENGINE_URL: z
     .string()
     .trim()
@@ -20,10 +19,14 @@ const serverEnvSchema = z.object({
     .trim()
     .optional()
     .transform((value) => (value ? value : undefined)),
+  SUPABASE_SERVICE_ROLE_KEY: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => (value ? value : undefined)),
 });
 
 const parsedEnv = serverEnvSchema.safeParse({
-  DATABASE_URL: process.env.DATABASE_URL,
   FORTIS_ENGINE_URL: process.env.FORTIS_ENGINE_URL,
   FORTIS_ENGINE_ORDER_PATH: process.env.FORTIS_ENGINE_ORDER_PATH ?? "/orders",
   FORTIS_ENGINE_TOKENIZE_PATH:
@@ -32,6 +35,7 @@ const parsedEnv = serverEnvSchema.safeParse({
     process.env.FORTIS_ENGINE_TRANSFER_REQUEST_PATH ?? "/transfer-requests",
   FORTIS_ENGINE_TOKEN: process.env.FORTIS_ENGINE_TOKEN,
   FORTIS_WEBHOOK_SECRET: process.env.FORTIS_WEBHOOK_SECRET,
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
 });
 
 if (!parsedEnv.success) {

@@ -1,92 +1,72 @@
-import { Prisma } from "@prisma/client";
-import type { User as SupabaseUser } from "@supabase/supabase-js";
+import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { PublicKey } from "@solana/web3.js";
 
-import { prisma } from "@/lib/prisma";
 import { ServiceError } from "@/lib/services/service-error";
+import type { Database } from "@/lib/supabase/database.types";
 
-function normalizeEmail(email: string | null | undefined) {
-  const normalizedEmail = email?.trim().toLowerCase();
+type MarketplaceUserRecord = Pick<
+  Database["public"]["Tables"]["users"]["Row"],
+  "id" | "email" | "solana_wallet_address"
+>;
 
-  if (!normalizedEmail) {
-    throw new ServiceError(400, "The authenticated Supabase user is missing an email address.");
-  }
-
-  return normalizedEmail;
+export interface MarketplaceUser {
+  id: number;
+  email: string;
+  solanaWalletAddress: string | null;
 }
 
-function isUniqueIdCollision(error: unknown) {
-  return (
-    error instanceof Prisma.PrismaClientKnownRequestError &&
-    error.code === "P2002" &&
-    Array.isArray(error.meta?.target) &&
-    error.meta.target.includes("id")
-  );
+function toMarketplaceUser(user: MarketplaceUserRecord): MarketplaceUser {
+  return {
+    id: user.id,
+    email: user.email,
+    solanaWalletAddress: user.solana_wallet_address ?? null,
+  };
 }
 
-export async function syncSupabaseAuthUser(supabaseUser: Pick<SupabaseUser, "id" | "email">) {
-  const email = normalizeEmail(supabaseUser.email);
-  const existingUser = await prisma.user.findUnique({
-    where: {
-      email,
-    },
-  });
-
-  if (existingUser) {
-    return prisma.user.update({
-      where: {
-        id: existingUser.id,
-      },
-      data: {
-        email,
-      },
-    });
+function isUniqueViolation(error: PostgrestError | null, columnName?: string) {
+  if (!error || error.code !== "23505") {
+    return false;
   }
 
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const highestUser = await prisma.user.findFirst({
-      select: {
-        id: true,
-      },
-      orderBy: {
-        id: "desc",
-      },
-    });
-
-    try {
-      return await prisma.user.create({
-        data: {
-          id: (highestUser?.id ?? 0) + 1,
-          email,
-        },
-      });
-    } catch (error) {
-      if (isUniqueIdCollision(error)) {
-        continue;
-      }
-
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === "P2002" &&
-        Array.isArray(error.meta?.target) &&
-        error.meta.target.includes("email")
-      ) {
-        const concurrentUser = await prisma.user.findUnique({
-          where: {
-            email,
-          },
-        });
-
-        if (concurrentUser) {
-          return concurrentUser;
-        }
-      }
-
-      throw error;
-    }
+  if (!columnName) {
+    return true;
   }
 
-  throw new ServiceError(500, "Failed to create a marketplace user record after multiple retries.");
+  const details = `${error.details ?? ""} ${error.message}`.toLowerCase();
+  return details.includes(columnName.toLowerCase());
+}
+
+async function getMarketplaceUserRecord(
+  supabase: SupabaseClient<Database>,
+  authUserId: string,
+): Promise<MarketplaceUserRecord | null> {
+  const { data, error } = await supabase
+    .from("users")
+    .select("id,email,solana_wallet_address")
+    .eq("auth_user_id", authUserId)
+    .maybeSingle();
+
+  if (error) {
+    throw new ServiceError(500, error.message);
+  }
+
+  return data;
+}
+
+export async function requireMarketplaceUser(
+  supabase: SupabaseClient<Database>,
+  authUserId: string,
+): Promise<MarketplaceUser> {
+  const user = await getMarketplaceUserRecord(supabase, authUserId);
+
+  if (!user) {
+    throw new ServiceError(
+      409,
+      "Your marketplace profile is not ready yet. Please sign out and sign in again.",
+    );
+  }
+
+  return toMarketplaceUser(user);
 }
 
 function normalizeWalletAddress(walletAddress: string) {
@@ -107,34 +87,36 @@ function normalizeWalletAddress(walletAddress: string) {
 }
 
 export async function bindSolanaWalletAddress(
-  supabaseUser: Pick<SupabaseUser, "id" | "email">,
+  supabase: SupabaseClient<Database>,
+  authUserId: string,
   walletAddress: string,
 ) {
-  const prismaUser = await syncSupabaseAuthUser(supabaseUser);
+  const marketplaceUser = await requireMarketplaceUser(supabase, authUserId);
   const normalizedWalletAddress = normalizeWalletAddress(walletAddress);
 
-  try {
-    return await prisma.user.update({
-      where: {
-        id: prismaUser.id,
-      },
-      data: {
-        solanaWalletAddress: normalizedWalletAddress,
-      },
-    });
-  } catch (error) {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === "P2002" &&
-      Array.isArray(error.meta?.target) &&
-      error.meta.target.includes("solana_wallet_address")
-    ) {
-      throw new ServiceError(
-        409,
-        "This wallet is already linked to another Fortis account. Disconnect it there first.",
-      );
-    }
+  const { data, error } = await supabase
+    .from("users")
+    .update({
+      solana_wallet_address: normalizedWalletAddress,
+    })
+    .eq("id", marketplaceUser.id)
+    .select("id,email,solana_wallet_address")
+    .single();
 
-    throw error;
+  if (isUniqueViolation(error, "solana_wallet_address")) {
+    throw new ServiceError(
+      409,
+      "This wallet is already linked to another Fortis account. Disconnect it there first.",
+    );
   }
+
+  if (error) {
+    throw new ServiceError(500, error.message);
+  }
+
+  if (!data) {
+    throw new ServiceError(500, "Failed to update the marketplace wallet profile.");
+  }
+
+  return toMarketplaceUser(data);
 }

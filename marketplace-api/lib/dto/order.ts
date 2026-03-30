@@ -1,5 +1,6 @@
-import type { Order } from "@prisma/client";
 import { z } from "zod";
+
+import type { Database } from "@/lib/supabase/database.types";
 
 export const orderDtoSchema = z.object({
   id: z.number().int().positive(),
@@ -20,19 +21,19 @@ export type OrderDto = z.infer<typeof orderDtoSchema>;
 export type OrderResult = z.infer<typeof orderResultSchema>;
 
 type OrderRecord = Pick<
-  Order,
-  "id" | "listingId" | "userId" | "status" | "txHash" | "fortisRequestId" | "errorMessage"
+  Database["public"]["Tables"]["orders"]["Row"],
+  "id" | "listing_id" | "user_id" | "status" | "tx_hash" | "fortis_request_id" | "error_message"
 >;
 
 export function toOrderDto(order: OrderRecord): OrderDto {
   return orderDtoSchema.parse({
     id: order.id,
-    listingId: order.listingId ?? null,
-    userId: order.userId ?? null,
+    listingId: order.listing_id ?? null,
+    userId: order.user_id ?? null,
     status: order.status ?? "Created",
-    txHash: order.txHash ?? null,
-    fortisRequestId: order.fortisRequestId ?? null,
-    errorMessage: order.errorMessage ?? null,
+    txHash: order.tx_hash ?? null,
+    fortisRequestId: order.fortis_request_id ?? null,
+    errorMessage: order.error_message ?? null,
   });
 }
 

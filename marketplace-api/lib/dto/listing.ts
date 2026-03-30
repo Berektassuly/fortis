@@ -1,5 +1,6 @@
-import type { Listing } from "@prisma/client";
 import { z } from "zod";
+
+import type { Database } from "@/lib/supabase/database.types";
 
 export const listingDtoSchema = z.object({
   id: z.number().int().positive(),
@@ -16,28 +17,36 @@ export const listingDtoSchema = z.object({
 export type ListingDto = z.infer<typeof listingDtoSchema>;
 
 type ListingRecord = Pick<
-  Listing,
+  Database["public"]["Tables"]["listings"]["Row"],
   | "id"
   | "title"
-  | "priceFiat"
+  | "price_fiat"
   | "description"
   | "images"
   | "city"
   | "rooms"
-  | "tokenMintAddress"
-  | "tokenizationStatus"
+  | "token_mint_address"
+  | "tokenization_status"
 >;
+
+function toNumericValue(value: number | string | null | undefined) {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+
+  return Number(value);
+}
 
 export function toListingDto(listing: ListingRecord): ListingDto {
   return listingDtoSchema.parse({
     id: listing.id,
     title: listing.title ?? "",
-    price: listing.priceFiat ?? 0,
+    price: toNumericValue(listing.price_fiat),
     description: listing.description ?? null,
-    photo: listing.images[0] ?? null,
+    photo: Array.isArray(listing.images) ? listing.images[0] ?? null : null,
     city: listing.city ?? null,
     rooms: listing.rooms ?? null,
-    tokenMintAddress: listing.tokenMintAddress ?? null,
-    tokenizationStatus: listing.tokenizationStatus,
+    tokenMintAddress: listing.token_mint_address ?? null,
+    tokenizationStatus: listing.tokenization_status ?? "draft",
   });
 }

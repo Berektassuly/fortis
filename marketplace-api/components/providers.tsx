@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { type ComponentType, type ReactNode, useMemo } from "react";
 import {
   ConnectionProvider,
   WalletProvider,
@@ -13,6 +13,28 @@ import { ThemeProvider } from "next-themes";
 
 import { Toaster } from "@/components/ui/sonner";
 
+interface StableConnectionProviderProps {
+  children: ReactNode;
+  endpoint: string;
+}
+
+interface StableWalletProviderProps {
+  autoConnect?: boolean;
+  children: ReactNode;
+  wallets: readonly unknown[];
+}
+
+interface StableWalletModalProviderProps {
+  children: ReactNode;
+}
+
+const StableConnectionProvider =
+  ConnectionProvider as unknown as ComponentType<StableConnectionProviderProps>;
+const StableWalletProvider =
+  WalletProvider as unknown as ComponentType<StableWalletProviderProps>;
+const StableWalletModalProvider =
+  WalletModalProvider as unknown as ComponentType<StableWalletModalProviderProps>;
+
 export function Providers({ children }: { children: React.ReactNode }) {
   const endpoint =
     process.env.NEXT_PUBLIC_SOLANA_RPC_URL?.trim() || clusterApiUrl(WalletAdapterNetwork.Devnet);
@@ -23,14 +45,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
-      <ConnectionProvider endpoint={endpoint}>
-        <WalletProvider wallets={wallets} autoConnect>
-          <WalletModalProvider>
+      <StableConnectionProvider endpoint={endpoint}>
+        <StableWalletProvider wallets={wallets} autoConnect>
+          <StableWalletModalProvider>
             {children}
             <Toaster position="top-right" richColors />
-          </WalletModalProvider>
-        </WalletProvider>
-      </ConnectionProvider>
+          </StableWalletModalProvider>
+        </StableWalletProvider>
+      </StableConnectionProvider>
     </ThemeProvider>
   );
 }
