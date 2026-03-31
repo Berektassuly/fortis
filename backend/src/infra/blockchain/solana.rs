@@ -31,6 +31,7 @@ use spl_associated_token_account::{
 };
 use spl_token_2022_interface::{
     extension::{ExtensionType, transfer_hook::instruction as transfer_hook_instruction},
+    id as token_2022_program_id,
     instruction as token2022_instruction,
     pod::PodMint,
 };
@@ -882,11 +883,11 @@ impl RpcBlockchainClient {
                 e
             )))
         })?;
-        if mint_account.owner != spl_token_2022::id() {
+        if mint_account.owner != token_2022_program_id() {
             return Err(AppError::Blockchain(BlockchainError::TransactionFailed(
                 format!(
                     "Fortis RWA wallet approvals require a Token-2022 mint. Expected owner {}, found {}",
-                    spl_token_2022::id(),
+                    token_2022_program_id(),
                     mint_account.owner
                 ),
             )));
@@ -1001,11 +1002,11 @@ impl RpcBlockchainClient {
             )))
         })?;
         let token_program_id = mint_account.owner;
-        if token_program_id != spl_token_2022::id() {
+        if token_program_id != token_2022_program_id() {
             return Err(AppError::Blockchain(BlockchainError::TransactionFailed(
                 format!(
                     "Fortis RWA transfers require a Token-2022 mint. Expected owner {}, found {}",
-                    spl_token_2022::id(),
+                    token_2022_program_id(),
                     token_program_id
                 ),
             )));
@@ -1319,7 +1320,7 @@ impl BlockchainClient for RpcBlockchainClient {
         }
 
         let (sdk_client, authority_keypair) = self.require_sdk_and_keypair()?;
-        let token_program_id = spl_token_2022::id();
+        let token_program_id = token_2022_program_id();
         let fortis_program_id = fortis_rwa_program_pubkey()?;
         let mint_keypair = Keypair::new();
         let mint_pubkey = mint_keypair.pubkey();
