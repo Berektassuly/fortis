@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 type WalletProfile = {
@@ -61,13 +62,18 @@ function shortenAddress(value: string | null | undefined) {
 }
 
 export default function WalletBindingControl() {
+  const router = useRouter();
   const { connected, publicKey } = useWallet();
   const [profile, setProfile] = useState<WalletProfile | null>(null);
+  const [isProfileLoading, setIsProfileLoading] = useState(true);
   const [isBinding, startTransition] = useTransition();
   const currentWalletAddress = useMemo(() => publicKey?.toBase58() ?? null, [publicKey]);
+  const displayWalletAddress = currentWalletAddress ?? profile?.solanaWalletAddress ?? null;
 
   useEffect(() => {
     let active = true;
+
+    setIsProfileLoading(true);
 
     void fetchWalletProfile()
       .then((nextProfile) => {
@@ -76,20 +82,27 @@ export default function WalletBindingControl() {
         }
       })
       .catch((error) => {
-        console.error(error);
+        if (error instanceof Error) {
+          console.error("Failed to load marketplace wallet profile", error);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setIsProfileLoading(false);
+        }
       });
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [connected]);
 
   useEffect(() => {
     if (!connected || !currentWalletAddress) {
       return;
     }
 
-    if (!profile) {
+    if (!profile || isProfileLoading) {
       return;
     }
 
@@ -101,6 +114,7 @@ export default function WalletBindingControl() {
       void bindWallet(currentWalletAddress)
         .then((nextProfile) => {
           setProfile(nextProfile);
+          router.refresh();
           toast.success("Wallet linked to your Fortis account.");
         })
         .catch((error) => {
@@ -108,7 +122,7 @@ export default function WalletBindingControl() {
           toast.error(error instanceof Error ? error.message : "Failed to bind wallet.");
         });
     });
-  }, [connected, currentWalletAddress, profile]);
+  }, [connected, currentWalletAddress, isProfileLoading, profile, router]);
 
   return (
     <div className="glass flex items-center gap-3 rounded-2xl px-3 py-2">
@@ -117,11 +131,13 @@ export default function WalletBindingControl() {
           Solana
         </p>
         <p className="truncate text-sm text-foreground">
-          {profile ? shortenAddress(profile.solanaWalletAddress) : "Connect to link"}
+          {displayWalletAddress ? shortenAddress(displayWalletAddress) : "Connect to link"}
         </p>
       </div>
 
-      <div className={isBinding ? "pointer-events-none opacity-70" : undefined}>
+      <div
+        className={isBinding || isProfileLoading ? "pointer-events-none opacity-70" : undefined}
+      >
         <WalletMultiButton className="!h-10 !rounded-2xl !bg-primary/90 !px-4 !text-sm !font-medium !text-primary-foreground hover:!bg-primary" />
       </div>
     </div>

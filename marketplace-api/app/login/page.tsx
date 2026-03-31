@@ -1,3 +1,4 @@
+import { unstable_noStore as noStore } from "next/cache";
 import { LockKeyhole, Shield, Sparkles } from "lucide-react";
 import { redirect } from "next/navigation";
 
@@ -33,6 +34,8 @@ const featureCards = [
 ] as const;
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
+  noStore();
+
   const nextPath = getSafeRedirectPath(searchParams?.next, "/");
   const supabaseConfigured = isSupabaseConfigured();
   const configError = !supabaseConfigured

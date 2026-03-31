@@ -1,3 +1,4 @@
+import { unstable_noStore as noStore } from "next/cache";
 import { ArrowLeft, LockKeyhole, Shield, Sparkles } from "lucide-react";
 import Link from "next/link";
 
@@ -26,6 +27,8 @@ const processCards = [
 ] as const;
 
 export default function CreateListingPage() {
+  noStore();
+
   return (
     <div className="min-h-screen bg-background">
       <Header />

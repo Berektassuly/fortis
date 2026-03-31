@@ -1,13 +1,20 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { PublicKey } from "@solana/web3.js";
 
+import { env } from "@/lib/env";
 import { ServiceError } from "@/lib/services/service-error";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
 
 type MarketplaceUserRecord = Pick<
   Database["public"]["Tables"]["users"]["Row"],
   "id" | "email" | "solana_wallet_address"
 >;
+
+export interface AuthenticatedMarketplaceUser {
+  email: string | null;
+  id: string;
+}
 
 export interface MarketplaceUser {
   id: number;
@@ -36,6 +43,24 @@ function isUniqueViolation(error: PostgrestError | null, columnName?: string) {
   return details.includes(columnName.toLowerCase());
 }
 
+function isRowLevelSecurityViolation(error: PostgrestError | null) {
+  if (!error) {
+    return false;
+  }
+
+  if (error.code === "42501") {
+    return true;
+  }
+
+  const details = `${error.details ?? ""} ${error.message}`.toLowerCase();
+  return details.includes("row-level security");
+}
+
+function normalizeAuthEmail(authUser: AuthenticatedMarketplaceUser) {
+  const normalizedEmail = authUser.email?.trim().toLowerCase();
+  return normalizedEmail || `${authUser.id}@auth.local`;
+}
+
 async function getMarketplaceUserRecord(
   supabase: SupabaseClient<Database>,
   authUserId: string,
@@ -51,6 +76,137 @@ async function getMarketplaceUserRecord(
   }
 
   return data;
+}
+
+async function upsertMarketplaceUserRecord(
+  supabase: SupabaseClient<Database>,
+  authUser: AuthenticatedMarketplaceUser,
+) {
+  const { data, error } = await supabase
+    .from("users")
+    .upsert(
+      {
+        auth_user_id: authUser.id,
+        email: normalizeAuthEmail(authUser),
+      },
+      {
+        onConflict: "auth_user_id",
+      },
+    )
+    .select("id,email,solana_wallet_address")
+    .maybeSingle();
+
+  if (isUniqueViolation(error, "email") || isRowLevelSecurityViolation(error)) {
+    return null;
+  }
+
+  if (error) {
+    throw new ServiceError(500, error.message);
+  }
+
+  return data;
+}
+
+async function upsertMarketplaceUserRecordWithAdmin(authUser: AuthenticatedMarketplaceUser) {
+  const supabase = createAdminClient();
+  const normalizedEmail = normalizeAuthEmail(authUser);
+
+  const { data: existingUser, error: existingUserError } = await supabase
+    .from("users")
+    .select("id,email,solana_wallet_address")
+    .eq("auth_user_id", authUser.id)
+    .maybeSingle();
+
+  if (existingUserError) {
+    throw new ServiceError(500, existingUserError.message);
+  }
+
+  if (existingUser) {
+    return existingUser;
+  }
+
+  const { data: claimedUser, error: claimError } = await supabase
+    .from("users")
+    .update({
+      auth_user_id: authUser.id,
+      email: normalizedEmail,
+    })
+    .eq("email", normalizedEmail)
+    .is("auth_user_id", null)
+    .select("id,email,solana_wallet_address")
+    .maybeSingle();
+
+  if (claimError) {
+    throw new ServiceError(500, claimError.message);
+  }
+
+  if (claimedUser) {
+    return claimedUser;
+  }
+
+  const { data, error } = await supabase
+    .from("users")
+    .upsert(
+      {
+        auth_user_id: authUser.id,
+        email: normalizedEmail,
+      },
+      {
+        onConflict: "auth_user_id",
+      },
+    )
+    .select("id,email,solana_wallet_address")
+    .maybeSingle();
+
+  if (isUniqueViolation(error, "email")) {
+    throw new ServiceError(
+      409,
+      "Another marketplace profile already uses this email address. Resolve the duplicate profile in Supabase before continuing.",
+    );
+  }
+
+  if (error) {
+    throw new ServiceError(500, error.message);
+  }
+
+  if (!data) {
+    throw new ServiceError(500, "Failed to synchronize the marketplace profile.");
+  }
+
+  return data;
+}
+
+export async function ensureMarketplaceUser(
+  supabase: SupabaseClient<Database>,
+  authUser: AuthenticatedMarketplaceUser,
+): Promise<MarketplaceUser> {
+  const existingUser = await getMarketplaceUserRecord(supabase, authUser.id);
+
+  if (existingUser) {
+    return toMarketplaceUser(existingUser);
+  }
+
+  const insertedUser = await upsertMarketplaceUserRecord(supabase, authUser);
+
+  if (insertedUser) {
+    return toMarketplaceUser(insertedUser);
+  }
+
+  if (env.SUPABASE_SERVICE_ROLE_KEY) {
+    const adminUser = await upsertMarketplaceUserRecordWithAdmin(authUser);
+    return toMarketplaceUser(adminUser);
+  }
+
+  const refreshedUser = await getMarketplaceUserRecord(supabase, authUser.id);
+
+  if (refreshedUser) {
+    return toMarketplaceUser(refreshedUser);
+  }
+
+  throw new ServiceError(
+    409,
+    "Your marketplace profile is not ready yet. Re-run the latest Supabase migration or configure SUPABASE_SERVICE_ROLE_KEY so Fortis can repair the profile mapping automatically.",
+  );
 }
 
 export async function requireMarketplaceUser(

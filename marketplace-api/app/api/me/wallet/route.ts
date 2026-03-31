@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { toErrorResponse } from "@/lib/route-errors";
-import { bindSolanaWalletAddress, requireMarketplaceUser } from "@/lib/services/users";
+import {
+  bindSolanaWalletAddress,
+  ensureMarketplaceUser,
+} from "@/lib/services/users";
 import { ServiceError } from "@/lib/services/service-error";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
@@ -32,7 +35,10 @@ async function requireAuthenticatedMarketplaceContext() {
   }
 
   return {
-    marketplaceUser: await requireMarketplaceUser(supabase, user.id),
+    marketplaceUser: await ensureMarketplaceUser(supabase, {
+      email: user.email ?? null,
+      id: user.id,
+    }),
     supabase,
     supabaseUserId: user.id,
   };

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { toErrorResponse } from "@/lib/route-errors";
 import { getOrderForUser } from "@/lib/services/orders";
 import { ServiceError } from "@/lib/services/service-error";
+import { ensureMarketplaceUser } from "@/lib/services/users";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
@@ -35,6 +36,11 @@ export async function GET(
     if (error || !user) {
       throw new ServiceError(401, "Sign in before checking order status.");
     }
+
+    await ensureMarketplaceUser(supabase, {
+      email: user.email ?? null,
+      id: user.id,
+    });
 
     const order = await getOrderForUser(supabase, orderId, user.id);
     return NextResponse.json(order);

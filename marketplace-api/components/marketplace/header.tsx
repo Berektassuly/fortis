@@ -1,3 +1,4 @@
+import { unstable_noStore as noStore } from "next/cache";
 import Link from "next/link";
 import { Home, LogIn, Plus, Search } from "lucide-react";
 
@@ -6,6 +7,8 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function Header() {
+  noStore();
+
   const supabaseConfigured = isSupabaseConfigured();
   let userEmail: string | undefined;
 
