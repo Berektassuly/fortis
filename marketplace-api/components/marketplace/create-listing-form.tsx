@@ -159,6 +159,7 @@ export default function CreateListingForm() {
     }
 
     let uploadedImagePath: string | null = null;
+    let listingSubmissionStarted = false;
 
     try {
       setIsSubmitting(true);
@@ -173,6 +174,7 @@ export default function CreateListingForm() {
         photo = upload.publicUrl;
       }
 
+      listingSubmissionStarted = true;
       const response = await fetch("/api/listings", {
         method: "POST",
         headers: {
@@ -190,10 +192,6 @@ export default function CreateListingForm() {
       });
 
       if (!response.ok) {
-        if (uploadedImagePath) {
-          await removeUploadedImage(uploadedImagePath);
-        }
-
         const body = (await response.json().catch(() => null)) as { error?: string } | null;
 
         if (response.status === 401) {
@@ -213,7 +211,7 @@ export default function CreateListingForm() {
         router.refresh();
       });
     } catch (error) {
-      if (uploadedImagePath) {
+      if (uploadedImagePath && !listingSubmissionStarted) {
         await removeUploadedImage(uploadedImagePath);
       }
 

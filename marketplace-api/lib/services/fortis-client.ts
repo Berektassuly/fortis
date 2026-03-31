@@ -46,6 +46,25 @@ function getFortisUrl(path: string) {
   return new URL(path, `${env.FORTIS_ENGINE_URL.replace(/\/$/, "")}/`);
 }
 
+function describeError(error: unknown): string {
+  if (error instanceof Error) {
+    const cause =
+      "cause" in error && error.cause !== undefined ? describeError(error.cause) : null;
+
+    return cause ? `${error.message} (cause: ${cause})` : error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
 async function requestFortis<T>(path: string, init: RequestInit): Promise<T> {
   const targetUrl = getFortisUrl(path);
 
@@ -53,19 +72,56 @@ async function requestFortis<T>(path: string, init: RequestInit): Promise<T> {
     throw new Error("FORTIS_ENGINE_URL is not configured.");
   }
 
-  const response = await fetch(targetUrl, {
-    ...init,
-    headers: {
-      ...(init.headers ?? {}),
-      ...(env.FORTIS_ENGINE_TOKEN ? { Authorization: `Bearer ${env.FORTIS_ENGINE_TOKEN}` } : {}),
-    },
-    cache: "no-store",
+  const requestId = crypto.randomUUID();
+  const method = init.method ?? "GET";
+
+  console.info("[fortis] request starting", {
+    method,
+    requestId,
+    url: targetUrl.toString(),
   });
+
+  let response: Response;
+
+  try {
+    response = await fetch(targetUrl, {
+      ...init,
+      headers: {
+        ...(init.headers ?? {}),
+        ...(env.FORTIS_ENGINE_TOKEN ? { Authorization: `Bearer ${env.FORTIS_ENGINE_TOKEN}` } : {}),
+      },
+      cache: "no-store",
+    });
+  } catch (error) {
+    const detail = describeError(error);
+    console.error("[fortis] request failed before response", {
+      error: detail,
+      method,
+      requestId,
+      url: targetUrl.toString(),
+    });
+    throw new Error(`Fortis request failed for ${targetUrl.toString()}: ${detail}`);
+  }
 
   if (!response.ok) {
     const details = await response.text().catch(() => "");
+    console.error("[fortis] request returned non-ok response", {
+      details,
+      method,
+      requestId,
+      status: response.status,
+      statusText: response.statusText,
+      url: targetUrl.toString(),
+    });
     throw new Error(`Fortis engine request failed with ${response.status}${details ? `: ${details}` : ""}`);
   }
+
+  console.info("[fortis] request completed", {
+    method,
+    requestId,
+    status: response.status,
+    url: targetUrl.toString(),
+  });
 
   return (await response.json()) as T;
 }

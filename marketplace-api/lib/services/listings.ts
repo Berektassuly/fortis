@@ -117,6 +117,12 @@ export async function createListing(
     const failureMessage =
       error instanceof Error ? error.message : "Listing tokenization failed.";
 
+    console.error("Listing tokenization failed", {
+      error: failureMessage,
+      listingId: listing.id,
+      ownerId: owner.id,
+    });
+
     const { error: markFailedError } = await supabase
       .from("listings")
       .update({
