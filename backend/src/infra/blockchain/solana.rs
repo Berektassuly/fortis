@@ -1858,11 +1858,25 @@ fn wrap_error_with_blockhash(error: AppError, blockhash: &str) -> AppError {
     }
 }
 
-/// Parse a base58-encoded private key into a SigningKey
+/// Parse a Solana private key into a SigningKey.
+///
+/// Accepts either:
+/// - a Base58-encoded 32-byte secret or 64-byte keypair
+/// - a JSON array from a Solana keypair file (for example `id.json`)
 pub fn signing_key_from_base58(secret: &SecretString) -> Result<SigningKey, AppError> {
-    let key_bytes = bs58::decode(secret.expose_secret())
-        .into_vec()
-        .map_err(|e| AppError::Blockchain(BlockchainError::InvalidSignature(e.to_string())))?;
+    let secret = secret.expose_secret().trim();
+    let key_bytes = if secret.starts_with('[') {
+        serde_json::from_str::<Vec<u8>>(secret).map_err(|e| {
+            AppError::Blockchain(BlockchainError::InvalidSignature(format!(
+                "Failed to parse JSON key array: {}",
+                e
+            )))
+        })?
+    } else {
+        bs58::decode(secret)
+            .into_vec()
+            .map_err(|e| AppError::Blockchain(BlockchainError::InvalidSignature(e.to_string())))?
+    };
 
     // Handle both 32-byte (seed) and 64-byte (keypair) formats
     let key_array: [u8; 32] = if key_bytes.len() == 64 {
@@ -1944,6 +1958,33 @@ mod tests {
         let secret = SecretString::from(encoded);
         let result = signing_key_from_base58(&secret);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_signing_key_from_json_array_valid_32_bytes() {
+        let original_key = SigningKey::generate(&mut OsRng);
+        let encoded = serde_json::to_string(&original_key.to_bytes().to_vec()).unwrap();
+        let secret = SecretString::from(encoded);
+        let result = signing_key_from_base58(&secret);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_signing_key_from_json_array_valid_64_bytes() {
+        let original_key = SigningKey::generate(&mut OsRng);
+        let mut keypair = original_key.to_bytes().to_vec();
+        keypair.extend_from_slice(original_key.verifying_key().as_bytes());
+        let encoded = serde_json::to_string(&keypair).unwrap();
+        let secret = SecretString::from(encoded);
+        let result = signing_key_from_base58(&secret);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_signing_key_from_json_array_invalid() {
+        let secret = SecretString::from("[1,2,\"oops\"]");
+        let result = signing_key_from_base58(&secret);
+        assert!(result.is_err());
     }
 
     #[test]

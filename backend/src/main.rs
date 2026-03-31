@@ -166,28 +166,30 @@ impl Config {
             anyhow::anyhow!(
                 "ISSUER_PRIVATE_KEY environment variable is not set.\n\
                  This is a REQUIRED configuration for production.\n\
-                 Please set ISSUER_PRIVATE_KEY to a valid Base58-encoded Solana private key."
+                 Please set ISSUER_PRIVATE_KEY to a valid Solana private key in Base58 \
+                 or JSON-array format."
             )
         })?;
 
         if key_str.is_empty() {
             anyhow::bail!(
                 "ISSUER_PRIVATE_KEY environment variable is empty.\n\
-                 Please provide a valid Base58-encoded Solana private key."
+                 Please provide a valid Solana private key in Base58 or JSON-array format."
             );
         }
 
         if key_str == "YOUR_BASE58_ENCODED_PRIVATE_KEY_HERE" {
             anyhow::bail!(
                 "ISSUER_PRIVATE_KEY is set to the default placeholder value.\n\
-                 Please replace it with your actual Base58-encoded Solana private key.\n\
+                 Please replace it with your actual Solana private key.\n\
                  SECURITY WARNING: Never run in production without a valid key!"
             );
         }
 
         info!("Loading signing key from environment");
         let secret = SecretString::from(key_str);
-        signing_key_from_base58(&secret).context("Failed to parse ISSUER_PRIVATE_KEY as Base58")
+        signing_key_from_base58(&secret)
+            .context("Failed to parse ISSUER_PRIVATE_KEY as Base58 or JSON array")
     }
 }
 
