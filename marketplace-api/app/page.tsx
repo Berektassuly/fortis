@@ -19,7 +19,7 @@ export default async function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen overflow-x-clip bg-transparent">
       <Header />
       <main className="relative overflow-hidden pb-20">
         <ListingsBrowser listings={listings} />

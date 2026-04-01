@@ -20,47 +20,47 @@ type AssetTheme = {
 const ASSET_THEMES: Record<MarketplaceAssetType, AssetTheme> = {
   bond: {
     badgeClassName:
-      "border-purple-300/55 bg-purple-500/16 text-purple-50 shadow-[0_0_14px_rgba(168,85,247,0.35)]",
+      "border-[#A855F7]/55 bg-[#A855F7]/12 text-white shadow-[0_0_18px_rgba(168,85,247,0.28)]",
     buttonClassName:
-      "border-purple-400/45 bg-purple-500/10 text-purple-50 shadow-[inset_0_0_18px_rgba(168,85,247,0.18),0_0_16px_rgba(168,85,247,0.2)]",
+      "border-[#A855F7]/70 shadow-[0_0_24px_rgba(168,85,247,0.16)] hover:bg-[#A855F7]/8",
     cardClassName:
-      "border-purple-500/50 shadow-[0_0_15px_rgba(168,85,247,0.4)] hover:shadow-[0_0_28px_rgba(168,85,247,0.45)]",
-    imageGlowClassName: "from-purple-500/20 via-transparent to-fuchsia-400/25",
+      "border-[#A855F7]/40 shadow-[0_0_0_1px_rgba(168,85,247,0.14),0_26px_70px_rgba(63,28,98,0.28)] hover:shadow-[0_0_0_1px_rgba(168,85,247,0.24),0_32px_92px_rgba(84,34,132,0.34)]",
+    imageGlowClassName: "bg-[radial-gradient(circle_at_center,rgba(168,85,247,0.28),transparent_68%)]",
     label: "Облигации",
-    orbClassName: "bg-purple-500/20",
+    orbClassName: "bg-[radial-gradient(circle,rgba(168,85,247,0.24)_0%,transparent_72%)]",
   },
   commodity: {
     badgeClassName:
-      "border-yellow-300/55 bg-yellow-500/14 text-yellow-50 shadow-[0_0_14px_rgba(234,179,8,0.35)]",
+      "border-[#EAB308]/55 bg-[#EAB308]/12 text-white shadow-[0_0_18px_rgba(234,179,8,0.24)]",
     buttonClassName:
-      "border-yellow-400/45 bg-yellow-500/10 text-yellow-50 shadow-[inset_0_0_18px_rgba(234,179,8,0.16),0_0_16px_rgba(234,179,8,0.22)]",
+      "border-[#EAB308]/70 shadow-[0_0_24px_rgba(234,179,8,0.16)] hover:bg-[#EAB308]/8",
     cardClassName:
-      "border-yellow-500/50 shadow-[0_0_15px_rgba(234,179,8,0.4)] hover:shadow-[0_0_28px_rgba(234,179,8,0.45)]",
-    imageGlowClassName: "from-yellow-400/22 via-transparent to-amber-500/28",
+      "border-[#EAB308]/40 shadow-[0_0_0_1px_rgba(234,179,8,0.14),0_26px_70px_rgba(103,74,12,0.24)] hover:shadow-[0_0_0_1px_rgba(234,179,8,0.24),0_32px_92px_rgba(128,93,18,0.32)]",
+    imageGlowClassName: "bg-[radial-gradient(circle_at_center,rgba(234,179,8,0.26),transparent_70%)]",
     label: "Товары",
-    orbClassName: "bg-yellow-500/20",
+    orbClassName: "bg-[radial-gradient(circle,rgba(234,179,8,0.22)_0%,transparent_72%)]",
   },
   equity: {
     badgeClassName:
-      "border-green-300/55 bg-green-500/14 text-green-50 shadow-[0_0_14px_rgba(34,197,94,0.35)]",
+      "border-[#22C55E]/55 bg-[#22C55E]/12 text-white shadow-[0_0_18px_rgba(34,197,94,0.24)]",
     buttonClassName:
-      "border-green-400/45 bg-green-500/10 text-green-50 shadow-[inset_0_0_18px_rgba(34,197,94,0.16),0_0_16px_rgba(34,197,94,0.22)]",
+      "border-[#22C55E]/70 shadow-[0_0_24px_rgba(34,197,94,0.16)] hover:bg-[#22C55E]/8",
     cardClassName:
-      "border-green-500/50 shadow-[0_0_15px_rgba(34,197,94,0.4)] hover:shadow-[0_0_28px_rgba(34,197,94,0.45)]",
-    imageGlowClassName: "from-green-400/18 via-transparent to-emerald-500/24",
+      "border-[#22C55E]/40 shadow-[0_0_0_1px_rgba(34,197,94,0.14),0_26px_70px_rgba(20,86,53,0.26)] hover:shadow-[0_0_0_1px_rgba(34,197,94,0.24),0_32px_92px_rgba(24,113,68,0.32)]",
+    imageGlowClassName: "bg-[radial-gradient(circle_at_center,rgba(34,197,94,0.24),transparent_70%)]",
     label: "Акции",
-    orbClassName: "bg-green-500/20",
+    orbClassName: "bg-[radial-gradient(circle,rgba(34,197,94,0.22)_0%,transparent_72%)]",
   },
   real_estate: {
     badgeClassName:
-      "border-blue-300/55 bg-blue-500/14 text-blue-50 shadow-[0_0_14px_rgba(59,130,246,0.35)]",
+      "border-[#3B82F6]/55 bg-[#3B82F6]/12 text-white shadow-[0_0_18px_rgba(59,130,246,0.26)]",
     buttonClassName:
-      "border-blue-400/45 bg-blue-500/10 text-blue-50 shadow-[inset_0_0_18px_rgba(59,130,246,0.16),0_0_16px_rgba(59,130,246,0.2)]",
+      "border-[#3B82F6]/70 shadow-[0_0_24px_rgba(59,130,246,0.16)] hover:bg-[#3B82F6]/8",
     cardClassName:
-      "border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.4)] hover:shadow-[0_0_28px_rgba(59,130,246,0.45)]",
-    imageGlowClassName: "from-sky-400/18 via-transparent to-blue-500/22",
+      "border-[#3B82F6]/40 shadow-[0_0_0_1px_rgba(59,130,246,0.14),0_26px_70px_rgba(18,58,122,0.28)] hover:shadow-[0_0_0_1px_rgba(59,130,246,0.24),0_32px_92px_rgba(24,79,162,0.34)]",
+    imageGlowClassName: "bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.28),transparent_68%)]",
     label: "Недвижимость",
-    orbClassName: "bg-blue-500/20",
+    orbClassName: "bg-[radial-gradient(circle,rgba(59,130,246,0.24)_0%,transparent_72%)]",
   },
 };
 
@@ -95,7 +95,7 @@ const LISTING_METRICS: Record<
 };
 
 function formatPrice(value: number) {
-  return `${value.toLocaleString("en-US")} USDT`;
+  return `${value.toLocaleString("ru-RU")} USDT`;
 }
 
 function getListingMetrics(listing: MarketplaceListing) {
@@ -104,7 +104,7 @@ function getListingMetrics(listing: MarketplaceListing) {
 }
 
 function getLocationLabel(listing: MarketplaceListing) {
-  return listing.city ? `${listing.city} · Solana` : "Solana";
+  return listing.city || "Solana";
 }
 
 function getFallbackArtwork(assetType: MarketplaceAssetType) {
@@ -209,8 +209,8 @@ export default function ListingCard({ listing, onClick }: ListingCardProps) {
       onClick={onClick}
       onKeyDown={handleKeyDown}
       className={[
-        "group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-[2rem] border",
-        "bg-[linear-gradient(180deg,rgba(17,19,35,0.92),rgba(8,10,20,0.92))] p-3 text-left backdrop-blur-xl transition-all duration-300",
+        "group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-[1.9rem] border",
+        "bg-[linear-gradient(180deg,rgba(14,18,31,0.9),rgba(8,11,20,0.94))] p-3 text-left backdrop-blur-[26px] transition-all duration-300",
         "hover:-translate-y-1.5",
         theme.cardClassName,
       ].join(" ")}
@@ -219,27 +219,25 @@ export default function ListingCard({ listing, onClick }: ListingCardProps) {
         <div className={`h-full w-full rounded-full ${theme.orbClassName}`} />
       </div>
 
-      <div className="relative overflow-hidden rounded-[1.4rem] border border-white/10">
+      <div className="relative overflow-hidden rounded-[1.45rem] border border-white/10">
+        <div className={`pointer-events-none absolute inset-0 ${theme.imageGlowClassName}`} />
         <img
           src={previewImage}
           alt={listing.title || theme.label}
           className="aspect-[1.08/1] h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
           loading="lazy"
         />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-black/5 to-white/5" />
-        <div
-          className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${theme.imageGlowClassName}`}
-        />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#080B14] via-black/10 to-white/5" />
 
         {!listing.photo ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <FallbackIcon className="h-14 w-14 text-white/22" />
+            <FallbackIcon className="h-14 w-14 text-white/20" />
           </div>
         ) : null}
 
         <span
           className={[
-            "absolute right-3 top-3 rounded-full border px-3 py-1 text-xs font-semibold",
+            "absolute right-3 top-3 rounded-full border px-3 py-1 text-xs font-semibold backdrop-blur-md",
             theme.badgeClassName,
           ].join(" ")}
         >
@@ -248,34 +246,34 @@ export default function ListingCard({ listing, onClick }: ListingCardProps) {
       </div>
 
       <div className="relative flex flex-1 flex-col px-2 pb-2 pt-4">
-        <div className="mb-4">
-          <h3 className="min-h-[3.25rem] text-[1.08rem] font-semibold leading-6 text-white">
+        <div className="mb-5">
+          <h3 className="min-h-[3.5rem] text-[1.12rem] font-semibold leading-6 text-white">
             {listing.title}
           </h3>
 
-          <div className="mt-1.5 flex items-center gap-1.5 text-sm text-white/60">
+          <div className="mt-2 flex items-center gap-1.5 text-sm text-white/58">
             <MapPin className="h-3.5 w-3.5" />
             <span>{getLocationLabel(listing)}</span>
           </div>
         </div>
 
-        <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-          <span className="text-white/58">Цена:</span>
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2.5 rounded-[1.35rem] border border-white/8 bg-white/[0.03] p-4 text-sm">
+          <span className="text-white/50">Цена</span>
           <span className="text-right font-medium text-white">{formatPrice(listing.price)}</span>
 
-          <span className="text-white/58">Доходность:</span>
+          <span className="text-white/50">Доходность</span>
           <span className="text-right font-medium text-white">{metrics.yield}</span>
 
-          <span className="text-white/58">Срок:</span>
+          <span className="text-white/50">Срок погашения</span>
           <span className="text-right font-medium text-white">{metrics.term}</span>
 
-          <span className="text-white/58">Токенизировано:</span>
+          <span className="text-white/50">Токенизировано</span>
           <span className="text-right font-medium text-white">{metrics.tokenized}</span>
         </div>
 
         <span
           className={[
-            "mt-5 flex min-h-12 w-full items-center justify-center rounded-[1rem] border px-4 text-base font-medium transition-all duration-300",
+            "mt-5 flex min-h-12 w-full items-center justify-center rounded-[1rem] border bg-transparent px-4 text-base font-medium text-white transition-all duration-300",
             theme.buttonClassName,
           ].join(" ")}
         >

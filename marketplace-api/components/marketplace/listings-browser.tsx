@@ -12,8 +12,6 @@ interface ListingsBrowserProps {
   listings: MarketplaceListing[];
 }
 
-const HERO_WAVE_OFFSETS = [0, 20, 40, 60, 80, 100];
-
 function getPriceBounds(listings: MarketplaceListing[]) {
   const prices = listings
     .map((listing) => listing.price)
@@ -52,29 +50,37 @@ function getAssetFilterLabel(assetFilter: MarketplaceAssetFilter) {
   return ASSET_FILTER_OPTIONS.find((option) => option.value === assetFilter)?.label ?? "Все";
 }
 
-function WaveMesh({
-  className,
-  stroke,
-}: {
-  className: string;
-  stroke: string;
-}) {
+function AmbientWaveField({ className }: { className?: string }) {
+  const waves = [
+    {
+      d: "M-120 516C82 442 204 406 382 436C546 462 674 586 846 574C1020 560 1112 394 1276 378C1388 366 1496 406 1576 458",
+      stroke: "rgba(0,229,255,0.28)",
+    },
+    {
+      d: "M-64 600C132 504 296 488 462 532C632 576 770 702 966 674C1168 644 1296 494 1508 486",
+      stroke: "rgba(139,92,246,0.24)",
+    },
+    {
+      d: "M-180 660C10 596 208 576 382 614C564 654 722 760 936 742C1140 724 1284 616 1508 604",
+      stroke: "rgba(59,130,246,0.18)",
+    },
+  ];
+
   return (
     <svg
-      viewBox="0 0 960 260"
+      viewBox="0 0 1440 760"
       aria-hidden="true"
       className={className}
       preserveAspectRatio="none"
       fill="none"
     >
-      {HERO_WAVE_OFFSETS.map((offset) => (
+      {waves.map(({ d, stroke }, index) => (
         <path
-          key={offset}
-          d={`M-40 ${188 - offset}C78 ${128 - offset}, 170 ${124 - offset}, 286 ${174 - offset}S522 ${
-            230 - offset
-          }, 662 ${176 - offset}S852 ${118 - offset}, 1000 ${166 - offset}`}
+          key={index}
+          d={d}
           stroke={stroke}
-          strokeWidth="2"
+          strokeWidth="2.2"
+          strokeLinecap="round"
         />
       ))}
     </svg>
@@ -107,71 +113,63 @@ export default function ListingsBrowser({ listings }: ListingsBrowserProps) {
 
   return (
     <>
-      <section className="relative">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-[780px] overflow-hidden">
-          <div className="absolute left-1/2 top-8 h-[520px] w-[92vw] max-w-[900px] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(140,92,255,0.32),rgba(140,92,255,0.14)_28%,transparent_68%)] blur-[110px]" />
-          <div className="absolute left-1/2 top-16 h-[460px] w-[80vw] max-w-[760px] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(40,197,255,0.34),rgba(40,197,255,0.1)_26%,transparent_62%)] blur-[96px]" />
-          <div className="absolute left-1/2 top-10 h-[360px] w-[360px] -translate-x-1/2 rotate-45 rounded-[3rem] border border-cyan-300/50 shadow-[0_0_60px_rgba(34,211,238,0.45)]" />
-          <div className="absolute left-1/2 top-12 h-[460px] w-[460px] -translate-x-1/2 rotate-45 rounded-[4rem] border border-fuchsia-400/40 shadow-[0_0_80px_rgba(217,70,239,0.35)]" />
-          <div className="absolute inset-x-0 bottom-20 h-48 bg-[radial-gradient(circle_at_center,rgba(228,76,255,0.18),transparent_62%)]" />
-          <WaveMesh
-            className="absolute -left-12 bottom-16 h-52 w-[44%] opacity-55"
-            stroke="rgba(195,121,255,0.32)"
-          />
-          <WaveMesh
-            className="absolute -right-12 bottom-10 h-52 w-[44%] scale-x-[-1] opacity-55"
-            stroke="rgba(230,96,255,0.32)"
-          />
+      <section className="relative overflow-hidden">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[940px] overflow-hidden">
+          <div className="absolute left-1/2 top-10 h-[680px] w-[680px] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(0,229,255,0.18),transparent_58%)] blur-[110px]" />
+          <div className="absolute left-1/2 top-12 h-[720px] w-[720px] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(139,92,246,0.18),transparent_62%)] blur-[130px]" />
+          <div className="absolute left-1/2 top-[4.5rem] h-[520px] w-[520px] -translate-x-1/2 rotate-45 rounded-[6rem] bg-[linear-gradient(135deg,rgba(0,229,255,0.48),rgba(139,92,246,0.5))] opacity-70 blur-[130px]" />
+          <div className="absolute left-1/2 top-[6rem] h-[430px] w-[430px] -translate-x-1/2 rotate-45 rounded-[5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.01))] opacity-70" />
+          <div className="absolute left-1/2 top-[9.5rem] h-[230px] w-[600px] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.22)_0%,rgba(0,229,255,0.18)_24%,rgba(139,92,246,0.18)_48%,transparent_76%)] blur-[48px]" />
+          <div className="absolute inset-x-[-8%] bottom-[7rem] h-[360px]">
+            <AmbientWaveField className="h-full w-full opacity-80" />
+          </div>
+          <div className="absolute inset-x-0 bottom-0 h-[220px] bg-[radial-gradient(circle_at_center,rgba(0,229,255,0.12),transparent_46%)]" />
         </div>
 
-        <div className="relative mx-auto max-w-[1320px] px-4 pt-6 sm:px-6 lg:px-8 lg:pt-10">
-          <div className="relative overflow-hidden rounded-[2.5rem] border border-white/8 bg-[linear-gradient(180deg,rgba(11,13,28,0.95),rgba(9,10,21,0.8))] px-5 pb-8 pt-10 shadow-[0_30px_120px_rgba(3,5,18,0.72)] sm:px-8 sm:pb-10 lg:px-10 lg:pb-12 lg:pt-14">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_42%)]" />
-
-            <div className="relative z-10 mx-auto max-w-4xl text-center">
-              <h1 className="mx-auto max-w-4xl text-4xl font-bold leading-tight text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.16)] sm:text-5xl lg:text-[4rem] lg:leading-[1.03]">
+        <div className="relative mx-auto max-w-[1440px] px-4 pt-6 sm:px-6 lg:px-8 lg:pt-8">
+          <div className="relative pb-10 pt-14 sm:pb-12 sm:pt-20 lg:pb-16 lg:pt-28">
+            <div className="relative z-10 mx-auto max-w-[1100px] text-center">
+              <h1 className="mx-auto max-w-[1000px] text-[2.9rem] font-extrabold leading-[0.98] tracking-[-0.05em] text-white [text-shadow:0_14px_46px_rgba(0,0,0,0.58),0_0_24px_rgba(255,255,255,0.15)] [text-wrap:balance] sm:text-[4rem] lg:text-[5.35rem]">
                 Институциональные токенизированные активы
               </h1>
-              <p className="mx-auto mt-4 max-w-3xl text-base leading-7 text-white/68 sm:text-lg">
-                Инвестируйте в недвижимость, облигации и сырьевые товары с
-                институциональным качеством на блокчейне Solana.
+              <p className="mx-auto mt-5 max-w-[760px] text-base leading-7 text-white/68 [text-wrap:balance] sm:text-lg">
+                Инвестируйте в недвижимость, облигации, товары и акции с институциональным качеством исполнения на блокчейне Solana.
               </p>
-            </div>
-
-            <div className="relative z-10 mt-10 lg:mt-12">
-              <Filters
-                minPrice={minPrice}
-                maxPrice={maxPrice}
-                selectedAssetType={selectedAssetType}
-                selectedMinPrice={selectedMinPrice}
-                selectedMaxPrice={selectedMaxPrice}
-                onAssetTypeChange={setSelectedAssetType}
-                onMinPriceChange={setSelectedMinPrice}
-                onMaxPriceChange={setSelectedMaxPrice}
-              />
             </div>
           </div>
 
-          <div className="mt-6 flex flex-wrap items-center justify-between gap-3 px-1">
+          <div className="relative z-20 mx-auto max-w-[1280px]">
+            <Filters
+              minPrice={minPrice}
+              maxPrice={maxPrice}
+              selectedAssetType={selectedAssetType}
+              selectedMinPrice={selectedMinPrice}
+              selectedMaxPrice={selectedMaxPrice}
+              onAssetTypeChange={setSelectedAssetType}
+              onMinPriceChange={setSelectedMinPrice}
+              onMaxPriceChange={setSelectedMaxPrice}
+            />
+          </div>
+
+          <div className="mt-8 flex flex-wrap items-center justify-between gap-3 px-1">
             <p className="text-sm text-white/55">
               {formatResultsText(filteredListings.length, listings.length)}
             </p>
-            <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.24em] text-white/42">
+            <div className="rounded-full border border-white/10 bg-white/[0.05] px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-white/44 backdrop-blur-xl">
               {selectedAssetType === "all" ? "Все активы" : getAssetFilterLabel(selectedAssetType)}
             </div>
           </div>
 
           {filteredListings.length === 0 ? (
-            <div className="glass mt-8 rounded-[2rem] border border-white/10 bg-card/35 px-6 py-20 text-center shadow-[0_20px_80px_rgba(8,10,24,0.5)]">
+            <div className="mt-8 rounded-[2.1rem] border border-white/10 bg-white/[0.05] px-6 py-20 text-center shadow-[0_24px_90px_rgba(4,8,24,0.4)] backdrop-blur-[26px]">
               <Building2 className="mx-auto mb-4 h-16 w-16 text-white/18" />
               <p className="text-2xl font-semibold text-white">Активы не найдены</p>
               <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-white/58">
-                Измените тип актива или расширьте ценовой диапазон, чтобы увидеть больше
-                институциональных предложений Fortis.
+                Измените тип актива или расширьте ценовой диапазон, чтобы увидеть больше институциональных предложений Fortis.
               </p>
             </div>
           ) : (
-            <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-5">
+            <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
               {filteredListings.map((listing) => (
                 <ListingCard
                   key={listing.id}

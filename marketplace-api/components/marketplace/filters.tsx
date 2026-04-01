@@ -1,5 +1,3 @@
-import { ChevronDown } from "lucide-react";
-
 import type { MarketplaceAssetFilter } from "@/types/listing";
 
 export const ASSET_FILTER_OPTIONS = [
@@ -25,14 +23,16 @@ interface FiltersProps {
 }
 
 function formatCompactPrice(value: number) {
-  return `${new Intl.NumberFormat("en-US", {
+  return `${new Intl.NumberFormat("ru-RU", {
     maximumFractionDigits: 1,
     notation: "compact",
-  }).format(value)} USDT`;
+  })
+    .format(value)
+    .toUpperCase()} USDT`;
 }
 
 function formatExactPrice(value: number) {
-  return `${value.toLocaleString("en-US")} USDT`;
+  return `${value.toLocaleString("ru-RU")} USDT`;
 }
 
 function getSliderStep(minPrice: number, maxPrice: number) {
@@ -69,10 +69,10 @@ export default function Filters({
   const rightPercentage = ((selectedMaxPrice - minPrice) / sliderRange) * 100;
   const sliderClassName =
     "pointer-events-none absolute inset-0 h-10 w-full appearance-none bg-transparent " +
-    "[&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-transparent " +
-    "[&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:relative [&::-webkit-slider-thumb]:mt-[-6px] [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-white/80 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_0_16px_rgba(56,189,248,0.75)] " +
-    "[&::-moz-range-track]:h-2 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-transparent " +
-    "[&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-white/80 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-[0_0_16px_rgba(56,189,248,0.75)]";
+    "[&::-webkit-slider-runnable-track]:h-[6px] [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-transparent " +
+    "[&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:relative [&::-webkit-slider-thumb]:mt-[-6px] [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-white/80 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_0_18px_rgba(0,229,255,0.75)] " +
+    "[&::-moz-range-track]:h-[6px] [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-transparent " +
+    "[&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-white/80 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-[0_0_18px_rgba(0,229,255,0.75)]";
 
   function handleMinPriceChange(value: number) {
     const maxAllowed = Math.max(minPrice, selectedMaxPrice - sliderStep);
@@ -85,59 +85,52 @@ export default function Filters({
   }
 
   return (
-    <div className="glass rounded-[2rem] border border-white/10 bg-card/40 p-5 shadow-[0_20px_90px_rgba(8,11,29,0.55)] sm:p-6">
-      <div className="grid gap-6 lg:grid-cols-[1.3fr_1fr] lg:items-end">
-        <div className="space-y-3">
-          <p className="text-sm font-medium text-white/80">Тип актива</p>
+    <div className="rounded-[2rem] border border-white/10 bg-[rgba(255,255,255,0.05)] p-5 shadow-[0_26px_120px_rgba(3,8,24,0.38)] backdrop-blur-[28px] sm:p-6 lg:p-7">
+      <div className="grid gap-8 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
+        <div className="space-y-4 lg:border-r lg:border-white/10 lg:pr-8">
+          <div className="flex items-center gap-2 text-sm font-semibold text-white">
+            <span className="h-2 w-2 rounded-full bg-white/70" />
+            Тип актива
+          </div>
 
-          <div className="rounded-[1.45rem] border border-white/10 bg-black/25 p-1.5">
-            <div className="flex flex-wrap items-center gap-1.5 sm:flex-nowrap">
-              {ASSET_FILTER_OPTIONS.map((option) => {
-                const isActive = option.value === selectedAssetType;
+          <div className="flex flex-wrap gap-2 rounded-[1.6rem] border border-white/8 bg-black/20 p-2">
+            {ASSET_FILTER_OPTIONS.map((option) => {
+              const isActive = option.value === selectedAssetType;
 
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    aria-pressed={isActive}
-                    onClick={() => onAssetTypeChange(option.value)}
-                    className={[
-                      "rounded-full px-4 py-2.5 text-sm font-medium transition-all duration-300",
-                      isActive
-                        ? "bg-white/14 text-white shadow-[0_0_22px_rgba(255,255,255,0.12)]"
-                        : "text-white/72 hover:bg-white/8 hover:text-white",
-                    ].join(" ")}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
-
-              <div className="ml-auto hidden h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/55 sm:flex">
-                <ChevronDown className="h-4 w-4" />
-              </div>
-            </div>
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() => onAssetTypeChange(option.value)}
+                  className={[
+                    "rounded-full border px-4 py-2.5 text-sm font-medium transition-all duration-300",
+                    isActive
+                      ? "border-white/10 bg-[#151A28] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_24px_rgba(255,255,255,0.05)]"
+                      : "border-transparent text-white/62 hover:border-white/8 hover:bg-white/5 hover:text-white",
+                  ].join(" ")}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div className="flex items-center justify-between gap-4">
-            <p className="text-sm font-medium text-white/80">Цена</p>
-            <p className="text-xs text-white/55">
+            <p className="text-sm font-semibold text-white">Цена</p>
+            <p className="text-xs text-white/58">
               {formatExactPrice(selectedMinPrice)} - {formatExactPrice(selectedMaxPrice)}
             </p>
           </div>
 
-          <div className="rounded-[1.45rem] border border-white/10 bg-black/25 px-4 py-3.5 sm:px-5">
-            <div className="flex items-center gap-3">
-              <span className="min-w-[4.5rem] text-xs font-medium uppercase tracking-[0.18em] text-white/45">
-                {formatCompactPrice(minPrice)}
-              </span>
-
-              <div className="relative h-10 flex-1">
-                <div className="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-white/10" />
+          <div className="rounded-[1.6rem] border border-white/8 bg-black/20 px-4 py-4 sm:px-5">
+            <div className="relative">
+              <div className="relative h-10">
+                <div className="absolute left-0 right-0 top-1/2 h-[6px] -translate-y-1/2 rounded-full bg-white/10" />
                 <div
-                  className="absolute top-1/2 h-2 -translate-y-1/2 rounded-full bg-neon-blue shadow-[0_0_20px_rgba(59,130,246,0.65)]"
+                  className="absolute top-1/2 h-[6px] -translate-y-1/2 rounded-full bg-[linear-gradient(90deg,#00E5FF_0%,#3B82F6_100%)] shadow-[0_0_24px_rgba(0,229,255,0.48)]"
                   style={{
                     left: `${leftPercentage}%`,
                     width: `${Math.max(rightPercentage - leftPercentage, 0)}%`,
@@ -166,9 +159,10 @@ export default function Filters({
                 />
               </div>
 
-              <span className="min-w-[4.5rem] text-right text-xs font-medium uppercase tracking-[0.18em] text-white/45">
-                {formatCompactPrice(maxPrice)}
-              </span>
+              <div className="mt-3 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.22em] text-white/42">
+                <span>{formatCompactPrice(minPrice)}</span>
+                <span>{formatCompactPrice(maxPrice)}</span>
+              </div>
             </div>
           </div>
         </div>

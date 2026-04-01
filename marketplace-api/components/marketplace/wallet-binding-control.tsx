@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -67,8 +67,7 @@ export default function WalletBindingControl() {
   const [profile, setProfile] = useState<WalletProfile | null>(null);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
   const [isBinding, startTransition] = useTransition();
-  const currentWalletAddress = useMemo(() => publicKey?.toBase58() ?? null, [publicKey]);
-  const displayWalletAddress = currentWalletAddress ?? profile?.solanaWalletAddress ?? null;
+  const currentWalletAddress = publicKey?.toBase58() ?? null;
 
   useEffect(() => {
     let active = true;
@@ -124,22 +123,20 @@ export default function WalletBindingControl() {
     });
   }, [connected, currentWalletAddress, isProfileLoading, profile, router]);
 
-  return (
-    <div className="glass flex items-center gap-3 rounded-2xl px-3 py-2">
-      <div className="hidden min-w-0 md:block">
-        <p className="truncate text-xs uppercase tracking-[0.18em] text-muted-foreground">
-          Solana
-        </p>
-        <p className="truncate text-sm text-foreground">
-          {displayWalletAddress ? shortenAddress(displayWalletAddress) : "Connect to link"}
-        </p>
-      </div>
+  const title =
+    currentWalletAddress
+      ? `Подключен ${shortenAddress(currentWalletAddress)}`
+      : profile?.solanaWalletAddress
+        ? `Связан ${shortenAddress(profile.solanaWalletAddress)}`
+        : "Подключите кошелек Solana";
 
-      <div
-        className={isBinding || isProfileLoading ? "pointer-events-none opacity-70" : undefined}
-      >
-        <WalletMultiButton className="!h-10 !rounded-2xl !bg-primary/90 !px-4 !text-sm !font-medium !text-primary-foreground hover:!bg-primary" />
-      </div>
+  return (
+    <div
+      title={title}
+      aria-busy={isBinding || isProfileLoading}
+      className={isBinding || isProfileLoading ? "pointer-events-none opacity-75" : undefined}
+    >
+      <WalletMultiButton className="!h-11 !rounded-full !px-4 !text-sm !font-semibold" />
     </div>
   );
 }
