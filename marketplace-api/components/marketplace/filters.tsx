@@ -22,15 +22,6 @@ interface FiltersProps {
   selectedMinPrice: number;
 }
 
-function formatCompactPrice(value: number) {
-  return `${new Intl.NumberFormat("ru-RU", {
-    maximumFractionDigits: 1,
-    notation: "compact",
-  })
-    .format(value)
-    .toUpperCase()} USDT`;
-}
-
 function getSliderStep(minPrice: number, maxPrice: number) {
   const priceSpan = Math.max(maxPrice - minPrice, 1);
 
@@ -143,10 +134,6 @@ export default function Filters({
                 />
               </div>
 
-              <div className="mt-1.5 flex items-center justify-between text-[9px] font-semibold uppercase tracking-[0.18em] text-white/42 sm:text-[10px]">
-                <span>{formatCompactPrice(minPrice)}</span>
-                <span>{formatCompactPrice(maxPrice)}</span>
-              </div>
             </div>
           </div>
         </div>

@@ -56,7 +56,7 @@ export default async function Header() {
 
   return (
     <header className="sticky top-0 z-50">
-      <div className="mx-auto max-w-[1440px] px-4 pb-2 pt-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1440px] px-4 pb-0 pt-0 sm:px-6 lg:px-8">
         <div className="rounded-[2rem] border border-white/10 bg-[rgba(11,13,23,0.78)] px-4 py-4 shadow-[0_22px_90px_rgba(3,6,18,0.45)] backdrop-blur-[28px]">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex min-w-0 flex-1 items-center gap-4">

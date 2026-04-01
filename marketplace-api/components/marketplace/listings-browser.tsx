@@ -126,10 +126,10 @@ export default function ListingsBrowser({ listings }: ListingsBrowserProps) {
           <div className="absolute inset-x-0 bottom-0 h-[220px] bg-[radial-gradient(circle_at_center,rgba(0,229,255,0.12),transparent_46%)]" />
         </div>
 
-        <div className="relative mx-auto max-w-[1440px] px-4 pt-2 sm:px-6 lg:px-8 lg:pt-2">
-          <div className="relative pb-[3.5rem] pt-4 sm:pb-[4.25rem] sm:pt-5 lg:pb-[4.5rem] lg:pt-[1.4rem]">
+        <div className="relative mx-auto max-w-[1440px] px-4 pt-0 sm:px-6 lg:px-8 lg:pt-0">
+          <div className="relative pb-[3.1rem] pt-2 sm:pb-[3.85rem] sm:pt-3 lg:pb-[4.1rem] lg:pt-[0.7rem]">
             <div className="relative z-10 mx-auto max-w-[980px] text-center">
-              <h1 className="mx-auto max-w-[980px] text-[2.15rem] font-extrabold leading-[1.02] tracking-[-0.05em] text-white [text-shadow:0_14px_46px_rgba(0,0,0,0.58),0_0_24px_rgba(255,255,255,0.15)] sm:text-[3rem] lg:text-[3.9rem]">
+              <h1 className="mx-auto max-w-[980px] text-[2rem] font-extrabold leading-[1.02] tracking-[-0.05em] text-white [text-shadow:0_14px_46px_rgba(0,0,0,0.58),0_0_24px_rgba(255,255,255,0.15)] sm:text-[2.75rem] lg:text-[3.55rem]">
                 <span className="block">Институциональные</span>
                 <span className="mt-1 block">токенизированные активы</span>
               </h1>
@@ -154,7 +154,7 @@ export default function ListingsBrowser({ listings }: ListingsBrowserProps) {
             </div>
           </div>
 
-          <div className="mt-[1.35rem] flex flex-wrap items-center justify-between gap-3 px-1 sm:mt-[1.6rem] lg:mt-[1.9rem]">
+          <div className="mt-[1.05rem] flex flex-wrap items-center justify-between gap-3 px-1 sm:mt-[1.3rem] lg:mt-[1.55rem]">
             <p className="text-[0.9rem] text-white/55">
               {formatResultsText(filteredListings.length, listings.length)}
             </p>
