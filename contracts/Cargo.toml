@@ -1,6 +1,5 @@
 [workspace]
-members = ["programs/*"]
-exclude = ["backend"]
+members = ["programs/rwa_tokenizer"]
 resolver = "2"
 
 [workspace.package]

@@ -1,8 +1,7 @@
 .git
-.anchor
-node_modules
-target
-backend/target
+**/.anchor
+**/node_modules
+**/target
 .env
 .env.local
 *.log
