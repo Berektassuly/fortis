@@ -41,6 +41,7 @@ use anchor_spl::token_interface::{Mint, TokenAccount};
 // anchor-spl 0.31.1 подтягивает совместимую версию spl-token-2022.
 use anchor_spl::token_2022::spl_token_2022;
 use anchor_spl::token_2022::spl_token_2022::extension::BaseStateWithExtensions;
+use pyth_sdk_solana::Price as PythPrice;
 use spl_tlv_account_resolution::{
     account::ExtraAccountMeta, seeds::Seed, state::ExtraAccountMetaList,
 };
@@ -57,6 +58,12 @@ const MAX_URI_LEN: usize = 200;
 
 /// Максимальная длина имени актива.
 const MAX_NAME_LEN: usize = 64;
+
+/// Максимальный возраст Pyth-цены, которую мы принимаем, в секундах.
+const PYTH_MAX_PRICE_AGE_SECONDS: u64 = 60;
+
+/// AssetRecord хранит USD-оценку в центах: $1.00 = 100 => exponent = -2.
+const USD_CENTS_EXPONENT: i32 = -2;
 
 // =============================================================================
 // Program
@@ -136,7 +143,46 @@ pub mod rwa_tokenizer {
     }
 
     // =========================================================================
-    // Инструкция 3: Добавление кошелька в compliance whitelist
+    // Инструкция 3: Синхронизация оценки актива из Pyth oracle
+    // =========================================================================
+    //
+    // Authority передаёт Pyth price account для соответствующего актива, программа
+    // читает свежую цену и конвертирует её в USD cents для AssetRecord.
+    //
+    pub fn sync_oracle_valuation(ctx: Context<SyncOracleValuation>) -> Result<()> {
+        let clock = Clock::get()?;
+        let pyth_price_account = ctx.accounts.pyth_price_account.to_account_info();
+
+        #[allow(deprecated)]
+        let price_feed = pyth_sdk_solana::load_price_feed_from_account_info(&pyth_price_account)
+            .map_err(|_| error!(RwaError::InvalidOracleAccount))?;
+
+        let oracle_price = price_feed
+            .get_price_no_older_than(clock.unix_timestamp, PYTH_MAX_PRICE_AGE_SECONDS)
+            .ok_or_else(|| error!(RwaError::StaleOraclePrice))?;
+
+        let valuation_cents = oracle_price_to_usd_cents(&oracle_price)?;
+        require!(valuation_cents > 0, RwaError::InvalidValuation);
+
+        let asset = &mut ctx.accounts.asset_record;
+        let old_valuation = asset.valuation_usd;
+        asset.valuation_usd = valuation_cents;
+
+        msg!(
+            "Oracle valuation synced: mint={}, pyth_account={}, raw_price={} x 10^{}, publish_time={}, old_valuation_cents={}, new_valuation_cents={}",
+            asset.mint,
+            pyth_price_account.key(),
+            oracle_price.price,
+            oracle_price.expo,
+            oracle_price.publish_time,
+            old_valuation,
+            valuation_cents
+        );
+        Ok(())
+    }
+
+    // =========================================================================
+    // Инструкция 4: Добавление кошелька в compliance whitelist
     // =========================================================================
     //
     // Authority создаёт ComplianceRecord PDA для конкретного кошелька.
@@ -525,6 +571,28 @@ pub mod rwa_tokenizer {
 }
 
 // =============================================================================
+// Oracle Helpers
+// =============================================================================
+//
+// Pyth хранит цену как fixed-point число `price.price * 10^price.expo`.
+// Например, `price = 123456789` и `expo = -8` означает `1.23456789 USD`.
+//
+// `valuation_usd` в AssetRecord хранится в центах, то есть нам нужен exponent `-2`:
+//   cents.price * 10^-2 == original.price * 10^original.expo
+//
+// Поэтому мы просто рескейлим Pyth price до exponent `-2`; после этого
+// целое `cents.price` уже равно количеству центов, которое можно записать в u64.
+//
+
+fn oracle_price_to_usd_cents(price: &PythPrice) -> Result<u64> {
+    let cents_price = price
+        .scale_to_exponent(USD_CENTS_EXPONENT)
+        .ok_or_else(|| error!(RwaError::OracleMathError))?;
+
+    u64::try_from(cents_price.price).map_err(|_| error!(RwaError::OracleMathError))
+}
+
+// =============================================================================
 // Anti-Spoofing Helper
 // =============================================================================
 //
@@ -610,6 +678,28 @@ pub struct UpdateAsset<'info> {
         bump = asset_record.bump,
     )]
     pub asset_record: Account<'info, AssetRecord>,
+}
+
+// --- SyncOracleValuation -----------------------------------------------------
+
+#[derive(Accounts)]
+pub struct SyncOracleValuation<'info> {
+    /// Только authority актива может синхронизировать oracle-оценку.
+    #[account(
+        constraint = authority.key() == asset_record.authority @ RwaError::Unauthorized
+    )]
+    pub authority: Signer<'info>,
+
+    /// PDA с метаданными актива.
+    #[account(
+        mut,
+        seeds = [b"asset", asset_record.mint.as_ref()],
+        bump = asset_record.bump,
+    )]
+    pub asset_record: Account<'info, AssetRecord>,
+
+    /// CHECK: Pyth price account валидируется через Pyth SDK parser и staleness check.
+    pub pyth_price_account: UncheckedAccount<'info>,
 }
 
 // --- ApproveWallet -----------------------------------------------------------
@@ -956,4 +1046,16 @@ pub enum RwaError {
     /// PDA receiver compliance record не прошёл верификацию.
     #[msg("Invalid receiver compliance PDA")]
     InvalidReceiverCompliancePda,
+
+    /// Переданный oracle account не является валидным Pyth price account.
+    #[msg("Invalid Pyth oracle account")]
+    InvalidOracleAccount,
+
+    /// Цена из Pyth слишком старая и не подходит для обновления оценки.
+    #[msg("Pyth oracle price is stale")]
+    StaleOraclePrice,
+
+    /// Ошибка при преобразовании oracle price в USD cents.
+    #[msg("Failed to convert oracle price into USD cents")]
+    OracleMathError,
 }

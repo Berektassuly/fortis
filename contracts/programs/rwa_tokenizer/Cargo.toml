@@ -24,6 +24,7 @@ anchor-lang = { workspace = true }
 anchor-spl = { workspace = true, features = ["token_2022", "token_2022_extensions"] }
 spl-transfer-hook-interface = "2.1.0"
 spl-tlv-account-resolution = "0.11.1"
+pyth-sdk-solana = "0.10.6"
 
 [lints.rust]
 unexpected_cfgs = { level = "allow" }
