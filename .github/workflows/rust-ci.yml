@@ -1,0 +1,393 @@
+name: Rust Backend CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-backend-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+    working-directory: backend
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Default to SQLx offline mode for non-database jobs.
+  SQLX_OFFLINE: true
+  POSTGRES_DB: fortis_rwa_ci
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres
+  POSTGRES_HOST: 127.0.0.1
+  POSTGRES_PORT: 5432
+  DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/fortis_rwa_ci
+
+jobs:
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: backend-ci
+          workspaces: |
+            backend -> target
+          cache-all-crates: true
+          cache-on-failure: true
+
+      - name: Enforce formatting
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: backend-ci
+          workspaces: |
+            backend -> target
+          cache-all-crates: true
+          cache-on-failure: true
+
+      - name: Enforce lint cleanliness
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: backend-ci
+          workspaces: |
+            backend -> target
+          cache-all-crates: true
+          cache-on-failure: true
+
+      - name: Build rustdoc output
+        run: cargo doc --no-deps --document-private-items
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: backend-ci
+          workspaces: |
+            backend -> target
+          cache-all-crates: true
+          cache-on-failure: true
+
+      - name: Verify release build
+        run: cargo build --release
+
+  build-real-blockchain:
+    name: build-real-blockchain
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: backend-ci
+          workspaces: |
+            backend -> target
+          cache-all-crates: true
+          cache-on-failure: true
+
+      - name: Verify real-blockchain feature build
+        run: cargo build --release --features real-blockchain
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: backend-ci
+          workspaces: |
+            backend -> target
+          cache-all-crates: true
+          cache-on-failure: true
+
+      - name: Run unit tests
+        run: cargo test --lib
+
+  integration-tests:
+    name: integration-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: backend-ci
+          workspaces: |
+            backend -> target
+          cache-all-crates: true
+          cache-on-failure: true
+
+      - name: Run integration tests
+        run: cargo test --test '*'
+
+  database-tests:
+    name: database-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: fortis_rwa_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fortis_rwa_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      SQLX_OFFLINE: false
+      PGDATABASE: fortis_rwa_ci
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/fortis_rwa_ci
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: backend-ci
+          workspaces: |
+            backend -> target
+          cache-all-crates: true
+          cache-on-failure: true
+
+      - name: Install SQLx CLI
+        run: cargo install sqlx-cli --locked --no-default-features --features rustls,postgres
+
+      # The current database integration suite uses testcontainers to provision an
+      # isolated PostgreSQL instance per test file. This service-backed migration
+      # step still validates CI DATABASE_URL wiring and catches migration breakage.
+      - name: Apply SQLx migrations
+        run: sqlx migrate run
+
+      - name: Run database-dependent tests
+        run: cargo test --test database_integration -- --test-threads=1
+
+  migrations:
+    name: migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: fortis_rwa_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fortis_rwa_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      SQLX_OFFLINE: false
+      PGDATABASE: fortis_rwa_ci
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/fortis_rwa_ci
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: backend-ci
+          workspaces: |
+            backend -> target
+          cache-all-crates: true
+          cache-on-failure: true
+
+      - name: Install SQLx CLI
+        run: cargo install sqlx-cli --locked --no-default-features --features rustls,postgres
+
+      # SQLx 0.8 stores offline metadata in `.sqlx/`; this is the modern equivalent
+      # of enforcing the legacy `sqlx-data.json` check in CI.
+      - name: Verify SQLx offline metadata is current
+        run: cargo sqlx prepare --check -- --all-targets --all-features
+
+  bench-check:
+    name: bench-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: backend-ci
+          workspaces: |
+            backend -> target
+          cache-all-crates: true
+          cache-on-failure: true
+
+      - name: Ensure benchmarks compile
+        run: cargo bench --no-run
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: backend-ci
+          workspaces: |
+            backend -> target
+          cache-all-crates: true
+          cache-on-failure: true
+
+      - name: Install LLVM coverage prerequisites
+        run: rustup component add llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
+
+      - name: Generate HTML coverage report
+        run: |
+          cargo llvm-cov clean --workspace
+          cargo llvm-cov --all-features --workspace --html --output-dir coverage/html
+
+      - name: Generate Cobertura XML report
+        run: cargo llvm-cov report --cobertura --output-path coverage/cobertura.xml
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: |
+            backend/coverage/html
+            backend/coverage/cobertura.xml
+          if-no-files-found: error
+          retention-days: 14
+
+  security:
+    name: security
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: backend-ci
+          workspaces: |
+            backend -> target
+          cache-all-crates: true
+          cache-on-failure: true
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Audit Rust dependencies
+        run: cargo audit

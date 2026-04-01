@@ -519,9 +519,7 @@ pub mod rwa_tokenizer {
                 // Прямой вызов Anchor-обработчика без CPI
                 __private::__global::transfer_hook(program_id, accounts, &amount_bytes)
             }
-            _ => {
-                return Err(ProgramError::InvalidInstructionData.into());
-            }
+            _ => Err(ProgramError::InvalidInstructionData.into()),
         }
     }
 }
