@@ -31,10 +31,6 @@ function formatCompactPrice(value: number) {
     .toUpperCase()} USDT`;
 }
 
-function formatExactPrice(value: number) {
-  return `${value.toLocaleString("ru-RU")} USDT`;
-}
-
 function getSliderStep(minPrice: number, maxPrice: number) {
   const priceSpan = Math.max(maxPrice - minPrice, 1);
 
@@ -68,7 +64,7 @@ export default function Filters({
   const leftPercentage = ((selectedMinPrice - minPrice) / sliderRange) * 100;
   const rightPercentage = ((selectedMaxPrice - minPrice) / sliderRange) * 100;
   const sliderClassName =
-    "pointer-events-none absolute inset-0 h-10 w-full appearance-none bg-transparent " +
+    "pointer-events-none absolute inset-0 h-8 w-full appearance-none bg-transparent " +
     "[&::-webkit-slider-runnable-track]:h-[6px] [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-transparent " +
     "[&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:relative [&::-webkit-slider-thumb]:mt-[-6px] [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-white/80 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_0_18px_rgba(0,229,255,0.75)] " +
     "[&::-moz-range-track]:h-[6px] [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-transparent " +
@@ -85,15 +81,10 @@ export default function Filters({
   }
 
   return (
-    <div className="rounded-[2rem] border border-white/10 bg-[rgba(255,255,255,0.05)] p-5 shadow-[0_26px_120px_rgba(3,8,24,0.38)] backdrop-blur-[28px] sm:p-6 lg:p-7">
-      <div className="grid gap-8 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
-        <div className="space-y-4 lg:border-r lg:border-white/10 lg:pr-8">
-          <div className="flex items-center gap-2 text-sm font-semibold text-white">
-            <span className="h-2 w-2 rounded-full bg-white/70" />
-            Тип актива
-          </div>
-
-          <div className="flex flex-wrap gap-2 rounded-[1.6rem] border border-white/8 bg-black/20 p-2">
+    <div className="rounded-[1.65rem] border border-white/10 bg-[rgba(255,255,255,0.05)] px-3.5 py-3 shadow-[0_24px_90px_rgba(3,8,24,0.34)] backdrop-blur-[28px] sm:px-4 sm:py-3.5">
+      <div className="grid gap-3 lg:grid-cols-[1.18fr_0.82fr] lg:items-center">
+        <div className="lg:border-r lg:border-white/10 lg:pr-5">
+          <div className="flex flex-nowrap items-center gap-1 rounded-[1.25rem] border border-white/8 bg-black/20 p-1.5">
             {ASSET_FILTER_OPTIONS.map((option) => {
               const isActive = option.value === selectedAssetType;
 
@@ -104,7 +95,7 @@ export default function Filters({
                   aria-pressed={isActive}
                   onClick={() => onAssetTypeChange(option.value)}
                   className={[
-                    "rounded-full border px-4 py-2.5 text-sm font-medium transition-all duration-300",
+                    "shrink-0 rounded-full border px-3 py-1.5 text-[0.84rem] font-medium transition-all duration-300 sm:px-3.5 sm:text-[0.86rem]",
                     isActive
                       ? "border-white/10 bg-[#151A28] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_24px_rgba(255,255,255,0.05)]"
                       : "border-transparent text-white/62 hover:border-white/8 hover:bg-white/5 hover:text-white",
@@ -117,17 +108,10 @@ export default function Filters({
           </div>
         </div>
 
-        <div className="space-y-4">
-          <div className="flex items-center justify-between gap-4">
-            <p className="text-sm font-semibold text-white">Цена</p>
-            <p className="text-xs text-white/58">
-              {formatExactPrice(selectedMinPrice)} - {formatExactPrice(selectedMaxPrice)}
-            </p>
-          </div>
-
-          <div className="rounded-[1.6rem] border border-white/8 bg-black/20 px-4 py-4 sm:px-5">
+        <div>
+          <div className="rounded-[1.25rem] border border-white/8 bg-black/20 px-3.5 py-2.5 sm:px-4">
             <div className="relative">
-              <div className="relative h-10">
+              <div className="relative h-8">
                 <div className="absolute left-0 right-0 top-1/2 h-[6px] -translate-y-1/2 rounded-full bg-white/10" />
                 <div
                   className="absolute top-1/2 h-[6px] -translate-y-1/2 rounded-full bg-[linear-gradient(90deg,#00E5FF_0%,#3B82F6_100%)] shadow-[0_0_24px_rgba(0,229,255,0.48)]"
@@ -159,7 +143,7 @@ export default function Filters({
                 />
               </div>
 
-              <div className="mt-3 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.22em] text-white/42">
+              <div className="mt-1.5 flex items-center justify-between text-[9px] font-semibold uppercase tracking-[0.18em] text-white/42 sm:text-[10px]">
                 <span>{formatCompactPrice(minPrice)}</span>
                 <span>{formatCompactPrice(maxPrice)}</span>
               </div>

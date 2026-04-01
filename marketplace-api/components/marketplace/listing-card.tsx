@@ -210,7 +210,7 @@ export default function ListingCard({ listing, onClick }: ListingCardProps) {
       onKeyDown={handleKeyDown}
       className={[
         "group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-[1.9rem] border",
-        "bg-[linear-gradient(180deg,rgba(14,18,31,0.9),rgba(8,11,20,0.94))] p-3 text-left backdrop-blur-[26px] transition-all duration-300",
+        "bg-[linear-gradient(180deg,rgba(14,18,31,0.9),rgba(8,11,20,0.94))] p-[10px] text-left backdrop-blur-[26px] transition-all duration-300",
         "hover:-translate-y-1.5",
         theme.cardClassName,
       ].join(" ")}
@@ -224,7 +224,7 @@ export default function ListingCard({ listing, onClick }: ListingCardProps) {
         <img
           src={previewImage}
           alt={listing.title || theme.label}
-          className="aspect-[1.08/1] h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+          className="aspect-[1.16/0.8] h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
           loading="lazy"
         />
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#080B14] via-black/10 to-white/5" />
@@ -245,19 +245,19 @@ export default function ListingCard({ listing, onClick }: ListingCardProps) {
         </span>
       </div>
 
-      <div className="relative flex flex-1 flex-col px-2 pb-2 pt-4">
-        <div className="mb-5">
-          <h3 className="min-h-[3.5rem] text-[1.12rem] font-semibold leading-6 text-white">
+      <div className="relative flex flex-1 flex-col px-2 pb-2 pt-3">
+        <div className="mb-4">
+          <h3 className="min-h-[2.9rem] text-[1.04rem] font-semibold leading-[1.35] text-white">
             {listing.title}
           </h3>
 
-          <div className="mt-2 flex items-center gap-1.5 text-sm text-white/58">
+          <div className="mt-1.5 flex items-center gap-1.5 text-[0.92rem] text-white/58">
             <MapPin className="h-3.5 w-3.5" />
             <span>{getLocationLabel(listing)}</span>
           </div>
         </div>
 
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2.5 rounded-[1.35rem] border border-white/8 bg-white/[0.03] p-4 text-sm">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2 rounded-[1.35rem] border border-white/8 bg-white/[0.03] p-3.5 text-[0.93rem]">
           <span className="text-white/50">Цена</span>
           <span className="text-right font-medium text-white">{formatPrice(listing.price)}</span>
 
@@ -273,7 +273,7 @@ export default function ListingCard({ listing, onClick }: ListingCardProps) {
 
         <span
           className={[
-            "mt-5 flex min-h-12 w-full items-center justify-center rounded-[1rem] border bg-transparent px-4 text-base font-medium text-white transition-all duration-300",
+            "mt-4 flex min-h-11 w-full items-center justify-center rounded-[1rem] border bg-transparent px-4 text-[0.98rem] font-medium text-white transition-all duration-300",
             theme.buttonClassName,
           ].join(" ")}
         >

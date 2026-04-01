@@ -126,33 +126,36 @@ export default function ListingsBrowser({ listings }: ListingsBrowserProps) {
           <div className="absolute inset-x-0 bottom-0 h-[220px] bg-[radial-gradient(circle_at_center,rgba(0,229,255,0.12),transparent_46%)]" />
         </div>
 
-        <div className="relative mx-auto max-w-[1440px] px-4 pt-6 sm:px-6 lg:px-8 lg:pt-8">
-          <div className="relative pb-10 pt-14 sm:pb-12 sm:pt-20 lg:pb-16 lg:pt-28">
-            <div className="relative z-10 mx-auto max-w-[1100px] text-center">
-              <h1 className="mx-auto max-w-[1000px] text-[2.9rem] font-extrabold leading-[0.98] tracking-[-0.05em] text-white [text-shadow:0_14px_46px_rgba(0,0,0,0.58),0_0_24px_rgba(255,255,255,0.15)] [text-wrap:balance] sm:text-[4rem] lg:text-[5.35rem]">
-                Институциональные токенизированные активы
+        <div className="relative mx-auto max-w-[1440px] px-4 pt-2 sm:px-6 lg:px-8 lg:pt-2">
+          <div className="relative pb-[3.5rem] pt-4 sm:pb-[4.25rem] sm:pt-5 lg:pb-[4.5rem] lg:pt-[1.4rem]">
+            <div className="relative z-10 mx-auto max-w-[980px] text-center">
+              <h1 className="mx-auto max-w-[980px] text-[2.15rem] font-extrabold leading-[1.02] tracking-[-0.05em] text-white [text-shadow:0_14px_46px_rgba(0,0,0,0.58),0_0_24px_rgba(255,255,255,0.15)] sm:text-[3rem] lg:text-[3.9rem]">
+                <span className="block">Институциональные</span>
+                <span className="mt-1 block">токенизированные активы</span>
               </h1>
-              <p className="mx-auto mt-5 max-w-[760px] text-base leading-7 text-white/68 [text-wrap:balance] sm:text-lg">
+              <p className="mx-auto mt-3 max-w-[620px] text-[0.82rem] leading-6 text-white/66 [text-wrap:balance] sm:text-[0.9rem] lg:text-[0.96rem]">
                 Инвестируйте в недвижимость, облигации, товары и акции с институциональным качеством исполнения на блокчейне Solana.
               </p>
             </div>
+
+            <div className="absolute inset-x-0 bottom-0 z-20 translate-y-[4%] sm:translate-y-[6%] lg:translate-y-[8%]">
+              <div className="mx-auto max-w-[1080px]">
+                <Filters
+                  minPrice={minPrice}
+                  maxPrice={maxPrice}
+                  selectedAssetType={selectedAssetType}
+                  selectedMinPrice={selectedMinPrice}
+                  selectedMaxPrice={selectedMaxPrice}
+                  onAssetTypeChange={setSelectedAssetType}
+                  onMinPriceChange={setSelectedMinPrice}
+                  onMaxPriceChange={setSelectedMaxPrice}
+                />
+              </div>
+            </div>
           </div>
 
-          <div className="relative z-20 mx-auto max-w-[1280px]">
-            <Filters
-              minPrice={minPrice}
-              maxPrice={maxPrice}
-              selectedAssetType={selectedAssetType}
-              selectedMinPrice={selectedMinPrice}
-              selectedMaxPrice={selectedMaxPrice}
-              onAssetTypeChange={setSelectedAssetType}
-              onMinPriceChange={setSelectedMinPrice}
-              onMaxPriceChange={setSelectedMaxPrice}
-            />
-          </div>
-
-          <div className="mt-8 flex flex-wrap items-center justify-between gap-3 px-1">
-            <p className="text-sm text-white/55">
+          <div className="mt-[1.35rem] flex flex-wrap items-center justify-between gap-3 px-1 sm:mt-[1.6rem] lg:mt-[1.9rem]">
+            <p className="text-[0.9rem] text-white/55">
               {formatResultsText(filteredListings.length, listings.length)}
             </p>
             <div className="rounded-full border border-white/10 bg-white/[0.05] px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-white/44 backdrop-blur-xl">
@@ -169,7 +172,7 @@ export default function ListingsBrowser({ listings }: ListingsBrowserProps) {
               </p>
             </div>
           ) : (
-            <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-2 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
               {filteredListings.map((listing) => (
                 <ListingCard
                   key={listing.id}
