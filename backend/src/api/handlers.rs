@@ -96,9 +96,9 @@ pub async fn tokenize_listing_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<TokenizeListingRequest>,
 ) -> Result<Json<TokenizeListingResult>, AppError> {
-    payload.validate().map_err(|error| {
-        AppError::Validation(ValidationError::Multiple(error.to_string()))
-    })?;
+    payload
+        .validate()
+        .map_err(|error| AppError::Validation(ValidationError::Multiple(error.to_string())))?;
 
     let result = state.blockchain_client.tokenize_listing(&payload).await?;
     Ok(Json(result))

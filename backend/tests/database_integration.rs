@@ -19,6 +19,7 @@ fn test_request(seed: u8, amount: u64, nonce: String) -> SubmitTransferRequest {
     SubmitTransferRequest {
         from_address: test_pubkey(seed),
         to_address: test_pubkey(seed.saturating_add(100)),
+        source_owner_address: None,
         transfer_details: TransferType::Public { amount },
         token_mint: Some(test_pubkey(200)),
         signature: "dummy_sig".to_string(),
@@ -78,12 +79,7 @@ async fn test_create_and_get_transfer_request() {
         .expect("Failed to submit transfer");
     assert_eq!(created.from_address, test_pubkey(1));
     assert_eq!(created.to_address, test_pubkey(101));
-    assert_eq!(
-        created.transfer_details,
-        TransferType::Public {
-            amount: 1
-        }
-    );
+    assert_eq!(created.transfer_details, TransferType::Public { amount: 1 });
     assert_eq!(created.token_mint, Some(test_pubkey(200)));
     assert!(!created.id.is_empty());
 

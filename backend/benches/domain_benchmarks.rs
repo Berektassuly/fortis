@@ -7,6 +7,7 @@ fn bench_validation(c: &mut Criterion) {
     let request = SubmitTransferRequest {
         from_address: "AddressA".to_string(),
         to_address: "AddressB".to_string(),
+        source_owner_address: None,
         transfer_details: TransferType::Public { amount: 1 },
         token_mint: None,
         signature: "dummy_sig".to_string(),

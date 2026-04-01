@@ -604,6 +604,7 @@ mod tests {
         let request = SubmitTransferRequest {
             from_address: "AddressA".to_string(),
             to_address: "AddressB".to_string(),
+            source_owner_address: None,
             transfer_details: TransferType::Public {
                 amount: 1_500_000_000,
             },

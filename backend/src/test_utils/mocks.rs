@@ -176,8 +176,15 @@ impl DatabaseClient for MockDatabaseClient {
     }
 
     async fn enqueue_transfer_submission(&self, id: &str) -> Result<(), AppError> {
-        self.update_blockchain_status(id, BlockchainStatus::PendingSubmission, None, None, None, None)
-            .await
+        self.update_blockchain_status(
+            id,
+            BlockchainStatus::PendingSubmission,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
     }
 
     async fn list_transfer_requests(
@@ -298,7 +305,10 @@ impl DatabaseClient for MockDatabaseClient {
         Ok(approval)
     }
 
-    async fn get_pending_wallet_approvals(&self, limit: i64) -> Result<Vec<WalletApproval>, AppError> {
+    async fn get_pending_wallet_approvals(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<WalletApproval>, AppError> {
         self.check_should_fail()?;
         let mut approvals = self.wallet_approvals.lock().unwrap();
         let now = Utc::now();
@@ -370,20 +380,17 @@ impl DatabaseClient for MockDatabaseClient {
         let eligible_ids: Vec<String> = storage
             .values()
             .filter(|i| {
-                let approval_is_ready = i
-                    .token_mint
-                    .as_ref()
-                    .is_some_and(|mint| {
-                        self.wallet_approvals
-                            .lock()
-                            .unwrap()
-                            .values()
-                            .any(|approval| {
-                                approval.wallet_address == i.to_address
-                                    && approval.token_mint == *mint
-                                    && approval.anchor_status == WalletApprovalStatus::Approved
-                            })
-                    });
+                let approval_is_ready = i.token_mint.as_ref().is_some_and(|mint| {
+                    self.wallet_approvals
+                        .lock()
+                        .unwrap()
+                        .values()
+                        .any(|approval| {
+                            approval.wallet_address == i.to_address
+                                && approval.token_mint == *mint
+                                && approval.anchor_status == WalletApprovalStatus::Approved
+                        })
+                });
                 i.blockchain_status == BlockchainStatus::PendingSubmission
                     && i.compliance_status == ComplianceStatus::Approved
                     && approval_is_ready
@@ -573,7 +580,10 @@ impl BlockchainClient for MockBlockchainClient {
         Ok(WalletApprovalSubmission {
             asset_record_pda: format!("asset_pda_{}", token_mint),
             compliance_record_pda: format!("compliance_pda_{}_{}", token_mint, wallet_address),
-            tx_signature: Some(format!("approve_sig_{}", &token_mint[..8.min(token_mint.len())])),
+            tx_signature: Some(format!(
+                "approve_sig_{}",
+                &token_mint[..8.min(token_mint.len())]
+            )),
         })
     }
 
@@ -584,6 +594,7 @@ impl BlockchainClient for MockBlockchainClient {
         self.check_should_fail()?;
         let mint_seed = request
             .listing_id
+            .to_string()
             .chars()
             .take(8)
             .collect::<String>()

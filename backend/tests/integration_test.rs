@@ -56,6 +56,7 @@ fn create_signed_transfer_request(
     SubmitTransferRequest {
         from_address,
         to_address,
+        source_owner_address: None,
         transfer_details,
         token_mint: Some(token_mint),
         signature: signature_b58,

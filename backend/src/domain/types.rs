@@ -28,9 +28,11 @@ pub fn fortis_rwa_program_pubkey() -> Result<Pubkey, AppError> {
 pub fn derive_asset_record_pda(token_mint: &str) -> Result<String, AppError> {
     let program_id = fortis_rwa_program_pubkey()?;
     let mint = parse_pubkey(token_mint, "token_mint")?;
-    Ok(Pubkey::find_program_address(&[b"asset", mint.as_ref()], &program_id)
-        .0
-        .to_string())
+    Ok(
+        Pubkey::find_program_address(&[b"asset", mint.as_ref()], &program_id)
+            .0
+            .to_string(),
+    )
 }
 
 pub fn derive_compliance_record_pda(
@@ -911,7 +913,11 @@ pub struct TokenizeListingRequest {
     #[schema(example = 150000)]
     pub valuation_usd: u64,
 
-    #[validate(length(min = 32, max = 44, message = "sellerWalletAddress must be a Solana public key"))]
+    #[validate(length(
+        min = 32,
+        max = 44,
+        message = "sellerWalletAddress must be a Solana public key"
+    ))]
     #[schema(example = "HvwC9QSAzwEXkUkwqNNGhfNHoVqXJYfPvPZfQvJmHWcF")]
     pub seller_wallet_address: String,
 
@@ -953,7 +959,11 @@ impl TokenizeListingRequest {
     #[must_use]
     pub fn document_uri(&self) -> String {
         let mut uri = format!("fortis://listing/{}", self.listing_id);
-        if let Some(city) = self.city.as_deref().filter(|value| !value.trim().is_empty()) {
+        if let Some(city) = self
+            .city
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
             uri.push_str(&format!("?city={}", city.replace(' ', "-")));
         }
         uri.chars().take(200).collect()
@@ -1456,10 +1466,7 @@ mod tests {
         assert!(req.blockchain_last_error.is_none());
         assert!(req.blockchain_next_retry_at.is_none());
         assert!(req.source_owner_address.is_none());
-        assert_eq!(
-            req.transfer_details,
-            TransferType::Public { amount: 1 }
-        );
+        assert_eq!(req.transfer_details, TransferType::Public { amount: 1 });
     }
 
     #[test]

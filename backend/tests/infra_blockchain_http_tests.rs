@@ -591,4 +591,3 @@ mod quicknode_submission_tests {
         );
     }
 }
-

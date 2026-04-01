@@ -156,9 +156,7 @@ mod range_api_tests {
         // Score of 5 (just below the 6 threshold)
         Mock::given(method("GET"))
             .and(query_param("address", "AlmostRisky"))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_json(risk_response(5, "Medium risk")),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_json(risk_response(5, "Medium risk")))
             .mount(&mock_server)
             .await;
 

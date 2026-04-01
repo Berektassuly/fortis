@@ -1,0 +1,6 @@
+# CI exception list for advisories that are currently unfixable upstream.
+# Keep this intentionally narrow and revisit on dependency upgrades.
+[advisories]
+ignore = [
+  "RUSTSEC-2023-0071",
+]

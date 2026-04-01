@@ -72,7 +72,7 @@ fortis-rwa-backend = { path = ".", features = ["test-utils"] }
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
 tokio-test = "0.4"
-testcontainers = "0.26"
+testcontainers = "0.27.2"
 criterion = { version = "0.8.1", features = ["async_tokio"] }
 wiremock = "0.6"
 

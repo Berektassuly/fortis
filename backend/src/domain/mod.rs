@@ -14,6 +14,6 @@ pub use types::{
     PaginatedResponse, PaginationParams, QuickNodeTransactionMeta, QuickNodeWebhookEvent,
     QuickNodeWebhookPayload, RateLimitResponse, RiskCheckRequest, RiskCheckResult,
     SubmitTransferRequest, TokenizeListingRequest, TokenizeListingResult, TransactionStatus,
-    TransferRequest, TransferType, WalletApproval, WalletApprovalStatus,
-    WalletApprovalSubmission, WalletRiskProfile,
+    TransferRequest, TransferType, WalletApproval, WalletApprovalStatus, WalletApprovalSubmission,
+    WalletRiskProfile,
 };

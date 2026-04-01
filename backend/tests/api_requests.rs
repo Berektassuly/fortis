@@ -52,6 +52,7 @@ fn create_signed_transfer_request(to_idx: u32, amount: u64) -> SubmitTransferReq
     SubmitTransferRequest {
         from_address,
         to_address,
+        source_owner_address: None,
         transfer_details,
         token_mint: Some(token_mint),
         signature: signature_b58,
@@ -97,9 +98,7 @@ async fn test_full_transfer_lifecycle_flow() {
     assert_eq!(created_request.from_address, expected_from);
     assert_eq!(
         created_request.transfer_details,
-        TransferType::Public {
-            amount: 1
-        }
+        TransferType::Public { amount: 1 }
     );
 
     // 2. GET - Retrieve the created request by ID

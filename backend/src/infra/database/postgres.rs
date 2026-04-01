@@ -6,13 +6,13 @@ use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 use std::time::Duration;
 use tracing::{info, instrument};
 
+use crate::domain::ComplianceLevel;
+use crate::domain::types::{derive_asset_record_pda, derive_compliance_record_pda};
 use crate::domain::{
     AppError, BlockchainStatus, ComplianceDecision, ComplianceStatus, DatabaseClient,
     DatabaseError, LastErrorType, PaginatedResponse, SubmitTransferRequest, TransferRequest,
     TransferType, WalletApproval, WalletApprovalStatus, WalletRiskProfile,
 };
-use crate::domain::types::{derive_asset_record_pda, derive_compliance_record_pda};
-use crate::domain::ComplianceLevel;
 
 /// PostgreSQL connection pool configuration
 #[derive(Debug, Clone)]
@@ -156,7 +156,9 @@ impl PostgresClient {
             range_risk_level: row.try_get("range_risk_level").ok().flatten(),
             range_reasoning: row.try_get("range_reasoning").ok().flatten(),
             anchor_tx_signature: row.try_get("anchor_tx_signature").ok().flatten(),
-            anchor_status: anchor_status.parse().unwrap_or(WalletApprovalStatus::Received),
+            anchor_status: anchor_status
+                .parse()
+                .unwrap_or(WalletApprovalStatus::Received),
             retry_count: row.get("retry_count"),
             last_error: row.try_get("last_error").ok().flatten(),
             next_retry_at: row.try_get("next_retry_at").ok().flatten(),
@@ -246,7 +248,7 @@ impl DatabaseClient for PostgresClient {
         .bind(*amount as i64)
         .bind(data.token_mint.as_deref())
         .bind(ComplianceStatus::Pending.as_str())
-        .bind(BlockchainStatus::Received.as_str())  // Receive→Persist→Process: persist BEFORE compliance
+        .bind(BlockchainStatus::Received.as_str()) // Receive→Persist→Process: persist BEFORE compliance
         .bind(0i32)
         .bind(now)
         .bind(now)

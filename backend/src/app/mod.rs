@@ -9,5 +9,6 @@ pub use risk_service::RiskService;
 pub use service::AppService;
 pub use state::AppState;
 pub use worker::{
-    BlockchainRetryWorker, CrankConfig, StaleTransactionCrank, WorkerConfig, spawn_crank, spawn_worker,
+    BlockchainRetryWorker, CrankConfig, StaleTransactionCrank, WorkerConfig, spawn_crank,
+    spawn_worker,
 };

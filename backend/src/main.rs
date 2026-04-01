@@ -238,13 +238,9 @@ fn load_env_file() -> Option<PathBuf> {
         }
     }
 
-    for candidate in candidates {
-        if candidate.is_file() && dotenvy::from_path(&candidate).is_ok() {
-            return Some(candidate);
-        }
-    }
-
-    None
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.is_file() && dotenvy::from_path(candidate).is_ok())
 }
 
 async fn shutdown_signal() {

@@ -6,10 +6,10 @@ use tracing::{error, info, instrument, warn};
 use validator::Validate;
 
 use crate::domain::{
-    AppError, BlockchainClient, BlockchainStatus, ComplianceStatus, DatabaseClient,
-    HealthResponse, HealthStatus, HeliusTransaction, LastErrorType, PaginatedResponse,
-    QuickNodeWebhookEvent, SubmitTransferRequest, TransactionStatus, TransferRequest,
-    ValidationError, WalletApproval, WalletApprovalStatus,
+    AppError, BlockchainClient, BlockchainStatus, ComplianceStatus, DatabaseClient, HealthResponse,
+    HealthStatus, HeliusTransaction, LastErrorType, PaginatedResponse, QuickNodeWebhookEvent,
+    SubmitTransferRequest, TransactionStatus, TransferRequest, ValidationError, WalletApproval,
+    WalletApprovalStatus,
 };
 use crate::infra::BlocklistManager;
 
@@ -227,7 +227,9 @@ impl AppService {
         transfer_request.range_risk_level = decision.risk_level.clone();
         transfer_request.range_reasoning = decision.reasoning.clone();
 
-        self.db_client.enqueue_transfer_submission(&request_id).await?;
+        self.db_client
+            .enqueue_transfer_submission(&request_id)
+            .await?;
         transfer_request.blockchain_status = BlockchainStatus::PendingSubmission;
 
         info!(
@@ -585,7 +587,10 @@ impl AppService {
         Ok(count)
     }
 
-    async fn process_single_wallet_approval(&self, approval: &WalletApproval) -> Result<(), AppError> {
+    async fn process_single_wallet_approval(
+        &self,
+        approval: &WalletApproval,
+    ) -> Result<(), AppError> {
         match self
             .blockchain_client
             .approve_wallet(

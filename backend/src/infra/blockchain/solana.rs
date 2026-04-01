@@ -1,4 +1,4 @@
-﻿//! Blockchain RPC client implementation for Solana.
+//! Blockchain RPC client implementation for Solana.
 //!
 //! This module provides both mock and real blockchain interactions.
 //! Real blockchain functionality is enabled with the `real-blockchain` feature.
@@ -14,6 +14,7 @@ use std::time::Duration;
 use tracing::{debug, info, instrument, warn};
 
 // Solana SDK imports (v3.0)
+use sha2::{Digest, Sha256};
 use solana_client::nonblocking::rpc_client::RpcClient as SolanaRpcClient;
 use solana_commitment_config::CommitmentConfig;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
@@ -24,20 +25,17 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use solana_system_interface::instruction as system_instruction;
-use sha2::{Digest, Sha256};
 use spl_associated_token_account::{
     get_associated_token_address_with_program_id,
     instruction::create_associated_token_account_idempotent,
 };
 use spl_token_2022_interface::{
     extension::{ExtensionType, transfer_hook::instruction as transfer_hook_instruction},
-    id as token_2022_program_id,
-    instruction as token2022_instruction,
+    id as token_2022_program_id, instruction as token2022_instruction,
     pod::PodMint,
 };
 use spl_transfer_hook_interface::{
-    get_extra_account_metas_address,
-    offchain::add_extra_account_metas_for_execute,
+    get_extra_account_metas_address, offchain::add_extra_account_metas_for_execute,
 };
 
 use crate::domain::types::{TransferType, fortis_rwa_program_pubkey};
@@ -893,15 +891,16 @@ impl RpcBlockchainClient {
             )));
         }
 
-        let asset_record_account = sdk_client
-            .get_account(&asset_record_pda)
-            .await
-            .map_err(|e| {
-                AppError::Blockchain(BlockchainError::TransactionFailed(format!(
-                    "Asset record PDA {} was not found for mint {}: {}",
-                    asset_record_pda, token_mint, e
-                )))
-            })?;
+        let asset_record_account =
+            sdk_client
+                .get_account(&asset_record_pda)
+                .await
+                .map_err(|e| {
+                    AppError::Blockchain(BlockchainError::TransactionFailed(format!(
+                        "Asset record PDA {} was not found for mint {}: {}",
+                        asset_record_pda, token_mint, e
+                    )))
+                })?;
         if asset_record_account.owner != program_id {
             return Err(AppError::Blockchain(BlockchainError::TransactionFailed(
                 format!(
@@ -1056,7 +1055,9 @@ impl RpcBlockchainClient {
 
         let priority_fee = self.get_priority_fee(None).await;
         let mut instructions: Vec<Instruction> =
-            vec![ComputeBudgetInstruction::set_compute_unit_price(priority_fee)];
+            vec![ComputeBudgetInstruction::set_compute_unit_price(
+                priority_fee,
+            )];
 
         if sdk_client.get_account(&destination_ata).await.is_err() {
             instructions.push(create_associated_token_account_idempotent(
@@ -1495,8 +1496,9 @@ impl BlockchainClient for RpcBlockchainClient {
             )
             .await?;
 
-        let mut approval_instructions =
-            vec![ComputeBudgetInstruction::set_compute_unit_price(priority_fee)];
+        let mut approval_instructions = vec![ComputeBudgetInstruction::set_compute_unit_price(
+            priority_fee,
+        )];
         if let Some(ix) = seller_approval_ix {
             approval_instructions.push(ix);
         }

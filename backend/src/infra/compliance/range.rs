@@ -344,7 +344,10 @@ mod tests {
             reasoning: "2 hops from malicious address".to_string(),
             attribution: None,
         };
-        assert_eq!(provider.evaluate_risk(&response).status, ComplianceStatus::Rejected);
+        assert_eq!(
+            provider.evaluate_risk(&response).status,
+            ComplianceStatus::Rejected
+        );
     }
 
     #[test]
@@ -374,7 +377,10 @@ mod tests {
             reasoning: "Address is directly flagged for malicious activity.".to_string(),
             attribution: None,
         };
-        assert_eq!(provider.evaluate_risk(&response).status, ComplianceStatus::Rejected);
+        assert_eq!(
+            provider.evaluate_risk(&response).status,
+            ComplianceStatus::Rejected
+        );
     }
 
     #[test]
@@ -428,7 +434,10 @@ mod tests {
             reasoning: "4 hops from malicious address".to_string(),
             attribution: None,
         };
-        assert_eq!(provider.evaluate_risk(&response).status, ComplianceStatus::Rejected);
+        assert_eq!(
+            provider.evaluate_risk(&response).status,
+            ComplianceStatus::Rejected
+        );
 
         // Score of 1 should still be approved even with strict threshold
         let safe_response = RiskResponse {
@@ -439,7 +448,10 @@ mod tests {
             reasoning: "Very safe".to_string(),
             attribution: None,
         };
-        assert_eq!(provider.evaluate_risk(&safe_response).status, ComplianceStatus::Approved);
+        assert_eq!(
+            provider.evaluate_risk(&safe_response).status,
+            ComplianceStatus::Approved
+        );
     }
 
     /// Test that a relaxed threshold allows normally-rejected scores through,

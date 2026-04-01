@@ -79,7 +79,10 @@ pub trait DatabaseClient: Send + Sync {
     ) -> Result<WalletApproval, AppError>;
 
     /// Claim wallet approvals that are ready for processing.
-    async fn get_pending_wallet_approvals(&self, limit: i64) -> Result<Vec<WalletApproval>, AppError>;
+    async fn get_pending_wallet_approvals(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<WalletApproval>, AppError>;
 
     /// Update wallet approval processing state.
     async fn update_wallet_approval_status(
