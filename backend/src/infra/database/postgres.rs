@@ -168,6 +168,15 @@ impl PostgresClient {
             updated_at: row.get("updated_at"),
         })
     }
+
+    fn parse_wallet_approval_id(id: &str) -> Result<uuid::Uuid, AppError> {
+        uuid::Uuid::parse_str(id).map_err(|e| {
+            AppError::Validation(crate::domain::ValidationError::InvalidField {
+                field: "id".to_string(),
+                message: format!("Invalid wallet approval id: {}", e),
+            })
+        })
+    }
 }
 
 #[async_trait]
@@ -580,6 +589,8 @@ impl DatabaseClient for PostgresClient {
         next_retry_at: Option<DateTime<Utc>>,
         approved_at: Option<DateTime<Utc>>,
     ) -> Result<(), AppError> {
+        let wallet_approval_id = Self::parse_wallet_approval_id(id)?;
+
         sqlx::query(
             r#"
             UPDATE wallet_approvals
@@ -597,7 +608,7 @@ impl DatabaseClient for PostgresClient {
         .bind(error)
         .bind(next_retry_at)
         .bind(approved_at)
-        .bind(id)
+        .bind(wallet_approval_id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::Database(DatabaseError::Query(e.to_string())))?;
@@ -607,6 +618,8 @@ impl DatabaseClient for PostgresClient {
 
     #[instrument(skip(self), fields(id = %id))]
     async fn increment_wallet_approval_retry_count(&self, id: &str) -> Result<i32, AppError> {
+        let wallet_approval_id = Self::parse_wallet_approval_id(id)?;
+
         let row = sqlx::query(
             r#"
             UPDATE wallet_approvals
@@ -616,7 +629,7 @@ impl DatabaseClient for PostgresClient {
             RETURNING retry_count
             "#,
         )
-        .bind(id)
+        .bind(wallet_approval_id)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| AppError::Database(DatabaseError::Query(e.to_string())))?;

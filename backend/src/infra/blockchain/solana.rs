@@ -1149,6 +1149,77 @@ impl BlockchainClient for RpcBlockchainClient {
     }
 
     #[instrument(skip(self))]
+    async fn get_transaction_status(&self, signature: &str) -> Result<bool, AppError> {
+        match self.get_signature_status(signature).await? {
+            Some(
+                crate::domain::TransactionStatus::Confirmed
+                | crate::domain::TransactionStatus::Finalized,
+            ) => Ok(true),
+            Some(crate::domain::TransactionStatus::Failed(error)) => Err(AppError::Blockchain(
+                BlockchainError::TransactionFailed(error),
+            )),
+            None => Ok(false),
+        }
+    }
+
+    #[instrument(skip(self))]
+    async fn get_block_height(&self) -> Result<u64, AppError> {
+        self.rpc_call(
+            "getBlockHeight",
+            serde_json::json!([{ "commitment": "confirmed" }]),
+        )
+        .await
+    }
+
+    #[instrument(skip(self))]
+    async fn get_latest_blockhash(&self) -> Result<String, AppError> {
+        let result: BlockhashResult = self
+            .rpc_call(
+                "getLatestBlockhash",
+                serde_json::json!([{ "commitment": "confirmed" }]),
+            )
+            .await?;
+        Ok(result.value.blockhash)
+    }
+
+    #[instrument(skip(self))]
+    async fn wait_for_confirmation(
+        &self,
+        signature: &str,
+        timeout_secs: u64,
+    ) -> Result<bool, AppError> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_secs);
+        let poll_interval = Duration::from_millis(250);
+
+        loop {
+            match self.get_signature_status(signature).await? {
+                Some(
+                    crate::domain::TransactionStatus::Confirmed
+                    | crate::domain::TransactionStatus::Finalized,
+                ) => {
+                    return Ok(true);
+                }
+                Some(crate::domain::TransactionStatus::Failed(error)) => {
+                    return Err(AppError::Blockchain(BlockchainError::TransactionFailed(
+                        error,
+                    )));
+                }
+                None => {}
+            }
+
+            let now = tokio::time::Instant::now();
+            if now >= deadline {
+                return Err(AppError::Blockchain(BlockchainError::Timeout(format!(
+                    "Transaction {} not confirmed within {}s",
+                    signature, timeout_secs
+                ))));
+            }
+
+            tokio::time::sleep(poll_interval.min(deadline.saturating_duration_since(now))).await;
+        }
+    }
+
+    #[instrument(skip(self))]
     async fn submit_transaction(
         &self,
         request: &TransferRequest,
