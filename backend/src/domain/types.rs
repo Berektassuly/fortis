@@ -237,7 +237,8 @@ pub enum LastErrorType {
     /// Jito bundle definitively failed - safe to retry with new blockhash.
     /// The bundle was rejected/dropped and was NOT processed.
     JitoBundleFailed,
-    /// Transaction failed on-chain - safe to retry with new blockhash.
+    /// Transaction failed on-chain or during deterministic simulation.
+    /// Retrying with a new blockhash is double-spend safe, but not necessarily useful.
     TransactionFailed,
     /// Network/connection error - safe to retry with new blockhash.
     NetworkError,
@@ -267,6 +268,14 @@ impl LastErrorType {
         matches!(
             self,
             Self::None | Self::JitoBundleFailed | Self::TransactionFailed | Self::NetworkError
+        )
+    }
+
+    /// Check if the worker should retry automatically without operator intervention.
+    pub fn should_auto_retry(&self) -> bool {
+        matches!(
+            self,
+            Self::JitoStateUnknown | Self::JitoBundleFailed | Self::NetworkError
         )
     }
 }

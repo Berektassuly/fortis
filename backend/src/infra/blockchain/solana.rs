@@ -1969,6 +1969,14 @@ impl BlockchainClient for RpcBlockchainClient {
 }
 
 /// Map Solana client errors to our AppError types
+fn is_deterministic_rpc_failure(message: &str) -> bool {
+    message.contains("Transaction simulation failed")
+        || message.contains("Error processing Instruction")
+        || message.contains("custom program error")
+        || message.contains("AnchorError")
+        || message.contains("Program log:")
+}
+
 fn map_solana_client_error(err: solana_client::client_error::ClientError) -> AppError {
     use solana_client::client_error::ClientErrorKind;
 
@@ -1978,6 +1986,8 @@ fn map_solana_client_error(err: solana_client::client_error::ClientError) -> App
         ClientErrorKind::RpcError(_) => {
             if msg.contains("insufficient") || msg.contains("InsufficientFunds") {
                 AppError::Blockchain(BlockchainError::InsufficientFunds)
+            } else if is_deterministic_rpc_failure(&msg) {
+                AppError::Blockchain(BlockchainError::TransactionFailed(msg))
             } else {
                 AppError::Blockchain(BlockchainError::RpcError(msg))
             }
@@ -2008,10 +2018,16 @@ fn wrap_error_with_blockhash(error: AppError, blockhash: &str) -> AppError {
         }
         AppError::Blockchain(
             BlockchainError::Connection(ref msg) | BlockchainError::RpcError(ref msg),
-        ) => AppError::Blockchain(BlockchainError::NetworkErrorWithBlockhash {
-            message: msg.clone(),
-            blockhash: blockhash.to_string(),
-        }),
+        ) => {
+            if is_deterministic_rpc_failure(msg) {
+                AppError::Blockchain(BlockchainError::TransactionFailed(msg.clone()))
+            } else {
+                AppError::Blockchain(BlockchainError::NetworkErrorWithBlockhash {
+                    message: msg.clone(),
+                    blockhash: blockhash.to_string(),
+                })
+            }
+        }
         // JitoStateUnknown, JitoBundleFailed, etc. pass through â€” they have
         // their own retry semantics and the blockhash is already tracked separately.
         other => other,
@@ -2801,6 +2817,22 @@ mod tests {
         ));
         // Note: We can't check the provider's state after moving it into Box
         // The test validates that InsufficientFunds is eventually returned after retries
+    }
+
+    #[test]
+    fn test_wrap_error_with_blockhash_keeps_simulation_failures_terminal() {
+        let wrapped = wrap_error_with_blockhash(
+            AppError::Blockchain(BlockchainError::RpcError(
+                "RPC response error -32002: Transaction simulation failed: custom program error: 0x7df"
+                    .to_string(),
+            )),
+            "test_blockhash",
+        );
+
+        assert!(matches!(
+            wrapped,
+            AppError::Blockchain(BlockchainError::TransactionFailed(_))
+        ));
     }
 
     // --- WITH_PROVIDER CONSTRUCTOR TEST ---

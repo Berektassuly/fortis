@@ -631,17 +631,20 @@ impl AppService {
                 );
             }
             Err(e) => {
+                let error_type = self.blockchain_client.classify_error(&e);
                 let retry_count = self
                     .db_client
                     .increment_wallet_approval_retry_count(&approval.id)
                     .await?;
-                let (status, next_retry_at) = if retry_count >= MAX_RETRY_ATTEMPTS {
-                    (WalletApprovalStatus::Failed, None)
-                } else {
+                let should_retry =
+                    error_type.should_auto_retry() && retry_count < MAX_RETRY_ATTEMPTS;
+                let (status, next_retry_at) = if should_retry {
                     (
                         WalletApprovalStatus::Received,
                         Some(Utc::now() + Duration::seconds(calculate_backoff(retry_count))),
                     )
+                } else {
+                    (WalletApprovalStatus::Failed, None)
                 };
 
                 self.db_client
@@ -682,6 +685,7 @@ impl AppService {
                     approval_id = %approval.id,
                     wallet = %approval.wallet_address,
                     retry_count = retry_count,
+                    error_type = %error_type,
                     error = %e,
                     "Wallet approval failed"
                 );
@@ -902,14 +906,16 @@ impl AppService {
                 let attempt_blockhash = extract_blockhash_from_error(&e);
 
                 let retry_count = self.db_client.increment_retry_count(&request.id).await?;
-                let (status, next_retry) = if retry_count >= MAX_RETRY_ATTEMPTS {
-                    (BlockchainStatus::Failed, None)
-                } else {
+                let should_retry =
+                    error_type.should_auto_retry() && retry_count < MAX_RETRY_ATTEMPTS;
+                let (status, next_retry) = if should_retry {
                     let backoff = calculate_backoff(retry_count);
                     (
                         BlockchainStatus::PendingSubmission,
                         Some(Utc::now() + Duration::seconds(backoff)),
                     )
+                } else {
+                    (BlockchainStatus::Failed, None)
                 };
 
                 self.db_client
@@ -1376,12 +1382,10 @@ mod tests {
             .unwrap();
         db.enqueue_transfer_submission(&created.id).await.unwrap();
 
-        for _ in 0..MAX_RETRY_ATTEMPTS {
-            service
-                .process_single_wallet_approval(&approval)
-                .await
-                .unwrap();
-        }
+        service
+            .process_single_wallet_approval(&approval)
+            .await
+            .unwrap();
 
         let updated = db.get_transfer_request(&created.id).await.unwrap().unwrap();
         assert_eq!(updated.blockchain_status, BlockchainStatus::Failed);
@@ -1390,6 +1394,37 @@ mod tests {
                 .blockchain_last_error
                 .as_deref()
                 .is_some_and(|message| message.contains("Wallet approval failed"))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_process_pending_submissions_marks_transaction_failures_terminal() {
+        let db = Arc::new(MockDatabaseClient::new());
+        let blockchain = Arc::new(MockBlockchainClient::failing(
+            "Transaction simulation failed: custom program error: 0x7df",
+        ));
+        let compliance = Arc::new(MockComplianceProvider::new());
+        let service = AppService::new(db.clone() as _, blockchain as _, compliance as _);
+
+        let request = create_transfer_request(9);
+        let transfer_id = queue_transfer_ready_for_submission(&db, &request).await;
+
+        let processed = service.process_pending_submissions(10).await.unwrap();
+        assert_eq!(processed, 1);
+
+        let updated = db
+            .get_transfer_request(&transfer_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated.blockchain_status, BlockchainStatus::Failed);
+        assert_eq!(updated.blockchain_retry_count, 1);
+        assert!(updated.blockchain_next_retry_at.is_none());
+        assert!(
+            updated
+                .blockchain_last_error
+                .as_deref()
+                .is_some_and(|message| message.contains("Transaction simulation failed"))
         );
     }
 

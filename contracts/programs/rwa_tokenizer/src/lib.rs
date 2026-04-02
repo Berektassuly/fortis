@@ -65,6 +65,10 @@ const PYTH_MAX_PRICE_AGE_SECONDS: u64 = 60;
 /// AssetRecord хранит USD-оценку в центах: $1.00 = 100 => exponent = -2.
 const USD_CENTS_EXPONENT: i32 = -2;
 
+/// SPL Token account layout offsets used to derive wallet PDAs from token accounts.
+const TOKEN_ACCOUNT_OWNER_OFFSET: usize = 32;
+const TOKEN_ACCOUNT_OWNER_LEN: usize = 32;
+
 // =============================================================================
 // Program
 // =============================================================================
@@ -248,7 +252,7 @@ pub mod rwa_tokenizer {
     //   - index 5: AssetRecord PDA
     //     Seeds: ["asset", AccountKey(1)=mint]
     //   - index 6: ComplianceRecord PDA отправителя (sender)
-    //     Seeds: ["compliance", AccountKey(1)=mint, AccountKey(3)=owner]
+    //     Seeds: ["compliance", AccountKey(1)=mint, AccountData(0, 32, 32)=source owner]
     //   - index 7: ComplianceRecord PDA получателя (receiver)
     //     Seeds: ["compliance", AccountKey(1)=mint, AccountData(2, 32, 32)=dest owner]
     //
@@ -256,7 +260,7 @@ pub mod rwa_tokenizer {
     //     index 0 = source token account
     //     index 1 = mint
     //     index 2 = destination token account
-    //     index 3 = owner (authority/delegate of source)
+    //     index 3 = owner/delegate authority for the transfer
     //     index 4 = ExtraAccountMetaList PDA
     //     index 5+ = наши extra accounts
     //
@@ -293,8 +297,12 @@ pub mod rwa_tokenizer {
             //
             // Token-2022 динамически вычислит PDA по этим seeds:
             //   1. Literal "compliance"    — фиксированный префикс
-            //   2. AccountKey { index: 1 } — pubkey mint'а
-            //   3. AccountKey { index: 3 } — pubkey owner'а source account
+            //   2. AccountKey { index: 1 }  — pubkey mint'а
+            //   3. AccountData { index: 0 } — реальный owner source token account
+            //
+            // ВАЖНО: transfer authority может быть либо owner, либо delegate.
+            // Для compliance-проверки нужен именно реальный owner токен-аккаунта,
+            // иначе delegated transfer будет падать на ConstraintTokenOwner.
             //
             // Если кошелёк не прошёл KYC/AML, этот PDA не существует →
             // Anchor не сможет десериализовать → трансфер блокируется.
@@ -305,7 +313,11 @@ pub mod rwa_tokenizer {
                         bytes: b"compliance".to_vec(),
                     },
                     Seed::AccountKey { index: 1 }, // mint pubkey
-                    Seed::AccountKey { index: 3 }, // sender owner pubkey
+                    Seed::AccountData {
+                        account_index: 0, // source token account
+                        data_index: TOKEN_ACCOUNT_OWNER_OFFSET as u8,
+                        length: TOKEN_ACCOUNT_OWNER_LEN as u8,
+                    },
                 ],
                 false, // is_signer
                 false, // is_writable (только чтение)
@@ -437,12 +449,28 @@ pub mod rwa_tokenizer {
         // ---------------------------------------------------------------
         // Шаг 3: Compliance check отправителя (SENDER).
         //
-        // ComplianceRecord PDA динамически разрешён через
-        // ExtraAccountMetaList (index 6). Если PDA не существует
-        // (кошелёк не в whitelist) — Anchor вернёт
-        // AccountNotInitialized → трансфер блокируется.
+        // В delegated transfer'ах account index 3 содержит delegate authority,
+        // а не реального owner token account. Поэтому sender compliance PDA
+        // вычисляем по owner, извлечённому из source token account data.
         // ---------------------------------------------------------------
-        let sender = &ctx.accounts.sender_compliance_record;
+        let sender_owner = read_token_account_owner(&ctx.accounts.source_token.to_account_info())?;
+        let (expected_sender_pda, _bump) = Pubkey::find_program_address(
+            &[
+                b"compliance",
+                ctx.accounts.mint.key().as_ref(),
+                sender_owner.as_ref(),
+            ],
+            ctx.program_id,
+        );
+        require!(
+            ctx.accounts.sender_compliance_record.key() == expected_sender_pda,
+            RwaError::InvalidSenderCompliancePda
+        );
+
+        let sender_info = ctx.accounts.sender_compliance_record.to_account_info();
+        let sender_data = sender_info.try_borrow_data()?;
+        require!(sender_data.len() > 8, RwaError::ComplianceNotApproved);
+        let sender = ComplianceRecord::try_deserialize(&mut &sender_data[..])?;
         require!(
             sender.authority == asset.authority,
             RwaError::ComplianceNotApproved
@@ -472,11 +500,9 @@ pub mod rwa_tokenizer {
         // ---------------------------------------------------------------
         {
             // Извлекаем owner получателя из destination token account data.
-            // SPL Token account layout: [0..32] = mint, [32..64] = owner.
-            let dest_info = ctx.accounts.destination_token.to_account_info();
-            let dest_data = dest_info.try_borrow_data()?;
-            let dest_owner = Pubkey::try_from(&dest_data[32..64])
-                .map_err(|_| error!(RwaError::InvalidReceiverCompliancePda))?;
+            let dest_owner =
+                read_token_account_owner(&ctx.accounts.destination_token.to_account_info())
+                    .map_err(|_| error!(RwaError::InvalidReceiverCompliancePda))?;
 
             // Ручная верификация PDA: проверяем, что переданный аккаунт
             // соответствует ожидаемому PDA с seeds ["compliance", mint, dest_owner].
@@ -625,6 +651,25 @@ fn check_is_transferring(ctx: &Context<TransferHook>) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn read_token_account_owner(account_info: &AccountInfo<'_>) -> Result<Pubkey> {
+    let account_data = account_info.try_borrow_data()?;
+    read_token_account_owner_from_data(&account_data)
+}
+
+fn read_token_account_owner_from_data(account_data: &[u8]) -> Result<Pubkey> {
+    require!(
+        account_data.len() >= TOKEN_ACCOUNT_OWNER_OFFSET + TOKEN_ACCOUNT_OWNER_LEN,
+        RwaError::InvalidTokenAccountData
+    );
+
+    let owner_bytes: [u8; TOKEN_ACCOUNT_OWNER_LEN] = account_data
+        [TOKEN_ACCOUNT_OWNER_OFFSET..TOKEN_ACCOUNT_OWNER_OFFSET + TOKEN_ACCOUNT_OWNER_LEN]
+        .try_into()
+        .map_err(|_| error!(RwaError::InvalidTokenAccountData))?;
+
+    Ok(Pubkey::new_from_array(owner_bytes))
 }
 
 // =============================================================================
@@ -813,10 +858,10 @@ pub struct InitializeExtraAccountMetaList<'info> {
 #[derive(Accounts)]
 pub struct TransferHook<'info> {
     /// Source token account (откуда переводят).
-    /// Проверяем: принадлежит нашему mint'у и authority = owner.
+    /// Проверяем: принадлежит нашему mint'у.
+    /// Реальный owner читаем из account data, чтобы поддержать delegated transfers.
     #[account(
         token::mint = mint,
-        token::authority = owner,
     )]
     pub source_token: InterfaceAccount<'info, TokenAccount>,
 
@@ -849,13 +894,11 @@ pub struct TransferHook<'info> {
 
     /// ComplianceRecord PDA отправителя (index 6).
     /// Динамически разрешён Token-2022 через ExtraAccountMetaList seeds:
-    ///   ["compliance", AccountKey(1)=mint, AccountKey(3)=owner]
-    /// Если PDA не существует → AccountNotInitialized → трансфер блокируется.
-    #[account(
-        seeds = [b"compliance", mint.key().as_ref(), owner.key().as_ref()],
-        bump = sender_compliance_record.bump,
-    )]
-    pub sender_compliance_record: Account<'info, ComplianceRecord>,
+    ///   ["compliance", AccountKey(1)=mint, AccountData(0, 32, 32)=source owner]
+    /// Верификацию PDA выполняем вручную в transfer_hook, потому что Anchor
+    /// seeds constraint не умеет ссылаться на AccountData другого аккаунта.
+    /// CHECK: PDA проверен вручную в transfer_hook через Pubkey::find_program_address.
+    pub sender_compliance_record: UncheckedAccount<'info>,
 
     /// ComplianceRecord PDA получателя (index 7).
     /// Динамически разрешён Token-2022 через ExtraAccountMetaList seeds:
@@ -1047,6 +1090,14 @@ pub enum RwaError {
     #[msg("Invalid receiver compliance PDA")]
     InvalidReceiverCompliancePda,
 
+    /// PDA sender compliance record не прошёл верификацию.
+    #[msg("Invalid sender compliance PDA")]
+    InvalidSenderCompliancePda,
+
+    /// Token account data не соответствует ожидаемому SPL layout.
+    #[msg("Invalid token account data")]
+    InvalidTokenAccountData,
+
     /// Переданный oracle account не является валидным Pyth price account.
     #[msg("Invalid Pyth oracle account")]
     InvalidOracleAccount,
@@ -1058,4 +1109,27 @@ pub enum RwaError {
     /// Ошибка при преобразовании oracle price в USD cents.
     #[msg("Failed to convert oracle price into USD cents")]
     OracleMathError,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_token_account_owner_from_raw_account_data() {
+        let owner = Pubkey::new_unique();
+        let mut account_data = vec![0_u8; 165];
+        account_data
+            [TOKEN_ACCOUNT_OWNER_OFFSET..TOKEN_ACCOUNT_OWNER_OFFSET + TOKEN_ACCOUNT_OWNER_LEN]
+            .copy_from_slice(owner.as_ref());
+
+        let parsed = read_token_account_owner_from_data(&account_data).unwrap();
+        assert_eq!(parsed, owner);
+    }
+
+    #[test]
+    fn rejects_short_token_account_data() {
+        let err = read_token_account_owner_from_data(&[0_u8; 16]).unwrap_err();
+        assert!(err.to_string().contains("Invalid token account data"));
+    }
 }
