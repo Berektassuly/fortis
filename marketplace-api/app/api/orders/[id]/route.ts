@@ -3,8 +3,8 @@ import { NextResponse } from "next/server";
 import { toErrorResponse } from "@/lib/route-errors";
 import { getOrderForUser } from "@/lib/services/orders";
 import { ServiceError } from "@/lib/services/service-error";
-import { ensureMarketplaceUser } from "@/lib/services/users";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { requireAuthenticatedMarketplaceContext } from "@/lib/supabase/server-auth";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -28,21 +28,9 @@ export async function GET(
     }
 
     const supabase = createClient();
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser();
+    const { authUser } = await requireAuthenticatedMarketplaceContext(supabase);
 
-    if (error || !user) {
-      throw new ServiceError(401, "Sign in before checking order status.");
-    }
-
-    await ensureMarketplaceUser(supabase, {
-      email: user.email ?? null,
-      id: user.id,
-    });
-
-    const order = await getOrderForUser(supabase, orderId, user.id);
+    const order = await getOrderForUser(supabase, orderId, authUser.walletAddress);
     return NextResponse.json(order);
   } catch (error) {
     return toErrorResponse(error, "Failed to load the Fortis order");

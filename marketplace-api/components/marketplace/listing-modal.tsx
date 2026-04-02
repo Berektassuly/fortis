@@ -20,6 +20,7 @@ import { useRouter } from "next/navigation";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { toast } from "sonner";
 
+import { fetchCurrentWalletProfile } from "@/lib/supabase/wallet-profile";
 import type { MarketplaceAssetType, MarketplaceListing } from "@/types/listing";
 
 type OrderStatusResponse = {
@@ -259,20 +260,17 @@ export default function ListingModal({ listing, onClose }: ListingModalProps) {
     return () => window.clearInterval(intervalId);
   }, [order, router]);
 
-  async function ensureWalletBound(walletAddress: string) {
-    const response = await fetch("/api/me/wallet", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        walletAddress,
-      }),
-    });
+  async function requireMatchingWalletSession(walletAddress: string) {
+    const profile = await fetchCurrentWalletProfile();
 
-    if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(body?.error ?? "Не удалось привязать подключенный кошелек.");
+    if (!profile) {
+      throw new Error("Сессия Fortis истекла. Войдите через кошелек снова.");
+    }
+
+    if (profile.solanaWalletAddress !== walletAddress) {
+      throw new Error(
+        "Подключенный кошелек не совпадает с текущей Fortis wallet-сессией.",
+      );
     }
   }
 
@@ -296,7 +294,7 @@ export default function ListingModal({ listing, onClose }: ListingModalProps) {
 
     try {
       const walletAddress = publicKey.toBase58();
-      await ensureWalletBound(walletAddress);
+      await requireMatchingWalletSession(walletAddress);
 
       const amount = 1;
       const nonce = crypto.randomUUID();

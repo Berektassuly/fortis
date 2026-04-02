@@ -5,7 +5,7 @@ import type { Database } from "@/lib/supabase/database.types";
 export const orderDtoSchema = z.object({
   id: z.number().int().positive(),
   listingId: z.number().int().positive().nullable(),
-  userId: z.number().int().positive().nullable(),
+  userId: z.string().min(32).nullable(),
   status: z.string(),
   txHash: z.string().nullable(),
   fortisRequestId: z.string().nullable(),

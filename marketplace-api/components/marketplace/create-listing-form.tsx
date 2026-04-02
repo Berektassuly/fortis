@@ -9,6 +9,7 @@ import { toast } from "sonner";
 
 import { createClient } from "@/lib/supabase/client";
 import { getListingsBucket } from "@/lib/supabase/config";
+import { fetchCurrentWalletProfile } from "@/lib/supabase/wallet-profile";
 
 type AssetType = "bond" | "commodity" | "equity" | "real_estate";
 
@@ -44,19 +45,10 @@ function getUploadErrorMessage(message: string) {
   return message;
 }
 
-async function uploadListingImage(file: File) {
+async function uploadListingImage(file: File, walletIdentity: string) {
   const supabase = createClient();
   const bucket = getListingsBucket();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    throw new Error("Сессия истекла. Пожалуйста, войдите снова.");
-  }
-
-  const objectPath = `${user.id}/${crypto.randomUUID()}.${getFileExtension(file)}`;
+  const objectPath = `${walletIdentity}/${crypto.randomUUID()}.${getFileExtension(file)}`;
   const { error: uploadError } = await supabase.storage.from(bucket).upload(objectPath, file, {
     cacheControl: "3600",
     contentType: file.type || undefined,
@@ -118,21 +110,20 @@ export default function CreateListingForm() {
   const inputClass =
     "w-full rounded-2xl border border-white/10 bg-background/70 px-4 py-3.5 text-sm text-white outline-none transition-all placeholder:text-white/30 focus:border-neon-purple focus:ring-2 focus:ring-neon-purple/40";
 
-  async function ensureWalletBound(walletAddress: string) {
-    const response = await fetch("/api/me/wallet", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        walletAddress,
-      }),
-    });
+  async function requireMatchingWalletSession(walletAddress: string) {
+    const profile = await fetchCurrentWalletProfile();
 
-    if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(body?.error ?? "Не удалось привязать подключенный кошелек.");
+    if (!profile) {
+      throw new Error("Сессия Fortis истекла. Войдите через кошелек снова.");
     }
+
+    if (profile.solanaWalletAddress !== walletAddress) {
+      throw new Error(
+        "Подключенный кошелек не совпадает с текущей Fortis wallet-сессией.",
+      );
+    }
+
+    return profile;
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -165,11 +156,11 @@ export default function CreateListingForm() {
       setIsSubmitting(true);
 
       const walletAddress = publicKey.toBase58();
-      await ensureWalletBound(walletAddress);
+      const walletProfile = await requireMatchingWalletSession(walletAddress);
 
       let photo: string | null = null;
       if (photoFile) {
-        const upload = await uploadListingImage(photoFile);
+        const upload = await uploadListingImage(photoFile, walletProfile.id);
         uploadedImagePath = upload.objectPath;
         photo = upload.publicUrl;
       }
@@ -235,8 +226,7 @@ export default function CreateListingForm() {
           </div>
           <h2 className="text-2xl font-semibold text-white">Паспорт токенизации</h2>
           <p className="mt-2 text-sm leading-6 text-white/60">
-            Заполните ключевые параметры актива, добавьте визуальную обложку и отправьте
-            карточку в Fortis для дальнейшего выпуска и публикации.
+            Заполните ключевые параметры актива, добавьте визуальную обложку и отправьте карточку в Fortis для дальнейшего выпуска и публикации.
           </p>
         </div>
 
@@ -315,8 +305,7 @@ export default function CreateListingForm() {
                   Параметры недвижимости (Опционально)
                 </h3>
                 <p className="mt-1 text-sm leading-6 text-white/55">
-                  Эти поля нужны только для real-estate активов. Для облигаций, товаров и
-                  акций их можно оставить без изменений.
+                  Эти поля нужны только для real-estate активов. Для облигаций, товаров и акций их можно оставить без изменений.
                 </p>
               </div>
             </div>
@@ -396,8 +385,7 @@ export default function CreateListingForm() {
           <div className="flex items-center gap-3 rounded-[1.2rem] border border-white/8 bg-white/5 px-4 py-3 text-sm text-white/58">
             <Shield className="h-4 w-4 text-neon-purple" />
             <span>
-              Кошелек используется для подписи, привязки профиля и безопасной публикации
-              актива в Fortis.
+              Кошелек используется для подписи, SIWS-сессии и безопасной публикации актива в Fortis.
             </span>
           </div>
 

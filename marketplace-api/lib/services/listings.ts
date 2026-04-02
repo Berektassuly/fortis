@@ -1,11 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { PublicKey } from "@solana/web3.js";
 
 import { toListingDto, type ListingDto } from "@/lib/dto/listing";
 import { tokenizeListingWithFortis } from "@/lib/services/fortis-client";
 import { ServiceError } from "@/lib/services/service-error";
 import { requireMarketplaceUser } from "@/lib/services/users";
 import type { Database } from "@/lib/supabase/database.types";
+import { normalizeWalletAddress } from "@/lib/supabase/wallet-auth";
 import { createListingRequestSchema } from "@/lib/validators/listings";
 
 const LISTING_SELECT =
@@ -25,35 +25,30 @@ export async function getListings(supabase: SupabaseClient<Database>): Promise<L
   return (data ?? []).map(toListingDto);
 }
 
-function normalizeWalletAddress(walletAddress: string) {
-  try {
-    return new PublicKey(walletAddress).toBase58();
-  } catch (error) {
-    throw new ServiceError(
-      400,
-      error instanceof Error ? error.message : "Invalid Solana wallet address.",
-    );
+function requireWalletAddress(walletAddress: string) {
+  const normalizedWalletAddress = normalizeWalletAddress(walletAddress);
+
+  if (!normalizedWalletAddress) {
+    throw new ServiceError(400, "Invalid Solana wallet address.");
   }
+
+  return normalizedWalletAddress;
 }
 
 export async function createListing(
   supabase: SupabaseClient<Database>,
   input: unknown,
-  ownerAuthUserId: string,
+  ownerWalletAddress: string,
 ): Promise<ListingDto> {
   const data = createListingRequestSchema.parse(input);
-  const owner = await requireMarketplaceUser(supabase, ownerAuthUserId);
+  const owner = await requireMarketplaceUser(supabase, ownerWalletAddress);
 
-  if (!owner.solanaWalletAddress) {
-    throw new ServiceError(409, "Connect and link your Solana wallet before publishing a listing.");
-  }
+  const requestWalletAddress = requireWalletAddress(data.walletAddress);
 
-  const requestWalletAddress = normalizeWalletAddress(data.walletAddress);
-
-  if (requestWalletAddress !== owner.solanaWalletAddress) {
+  if (requestWalletAddress !== owner.id) {
     throw new ServiceError(
       409,
-      "The connected wallet does not match the wallet linked to your Fortis account.",
+      "The connected wallet does not match the wallet used for your Fortis SIWS session.",
     );
   }
 
@@ -66,7 +61,7 @@ export async function createListing(
       city: data.city ?? null,
       rooms: data.rooms ?? null,
       owner_id: owner.id,
-      seller_wallet_address: owner.solanaWalletAddress,
+      seller_wallet_address: owner.id,
       tokenization_status: "tokenizing",
       images: data.photo ? [data.photo] : [],
     })
@@ -88,14 +83,14 @@ export async function createListing(
       imageUrl: Array.isArray(listing.images) ? listing.images[0] ?? null : null,
       listingId: listing.id,
       priceFiat: Number(listing.price_fiat ?? 0),
-      sellerWalletAddress: owner.solanaWalletAddress,
+      sellerWalletAddress: owner.id,
       title: listing.title ?? `Listing #${listing.id}`,
     });
 
     const { data: activatedListing, error: updateError } = await supabase
       .from("listings")
       .update({
-        seller_wallet_address: owner.solanaWalletAddress,
+        seller_wallet_address: owner.id,
         token_mint_address: tokenization.tokenMintAddress,
         tokenization_error: null,
         tokenization_status: "active",

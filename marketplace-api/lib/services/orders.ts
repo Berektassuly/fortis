@@ -1,5 +1,4 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
-import { PublicKey } from "@solana/web3.js";
 
 import { toOrderDto, toOrderResult, type OrderDto, type OrderResult } from "@/lib/dto/order";
 import {
@@ -10,6 +9,7 @@ import {
 import { ServiceError } from "@/lib/services/service-error";
 import { requireMarketplaceUser } from "@/lib/services/users";
 import type { Database, OrderStatus } from "@/lib/supabase/database.types";
+import { normalizeWalletAddress } from "@/lib/supabase/wallet-auth";
 import { createOrderRequestSchema } from "@/lib/validators/orders";
 import { fortisSuccessWebhookSchema } from "@/lib/validators/webhooks";
 
@@ -22,15 +22,14 @@ interface OrderStatusUpdate {
   txHash: string | null;
 }
 
-function normalizeWalletAddress(walletAddress: string) {
-  try {
-    return new PublicKey(walletAddress).toBase58();
-  } catch (error) {
-    throw new ServiceError(
-      400,
-      error instanceof Error ? error.message : "Invalid Solana wallet address.",
-    );
+function requireWalletAddress(walletAddress: string) {
+  const normalizedWalletAddress = normalizeWalletAddress(walletAddress);
+
+  if (!normalizedWalletAddress) {
+    throw new ServiceError(400, "Invalid Solana wallet address.");
   }
+
+  return normalizedWalletAddress;
 }
 
 function normalizeOrderStatus(status: string | null | undefined): OrderStatus {
@@ -116,10 +115,10 @@ function mapFortisTransferToOrderUpdate(
 export async function createOrder(
   supabase: SupabaseClient<Database>,
   input: unknown,
-  userAuthUserId: string,
+  userWalletAddress: string,
 ): Promise<OrderResult> {
   const data = createOrderRequestSchema.parse(input);
-  const user = await requireMarketplaceUser(supabase, userAuthUserId);
+  const user = await requireMarketplaceUser(supabase, userWalletAddress);
 
   const { data: listing, error: listingError } = await supabase
     .from("listings")
@@ -135,10 +134,6 @@ export async function createOrder(
     throw new ServiceError(404, `Listing ${data.listingId} was not found.`);
   }
 
-  if (!user.solanaWalletAddress) {
-    throw new ServiceError(409, "Connect and link your Solana wallet before placing an order.");
-  }
-
   if (!listing.owner_id || !listing.seller_wallet_address || !listing.token_mint_address) {
     throw new ServiceError(409, "This listing is not fully tokenized yet.");
   }
@@ -151,15 +146,15 @@ export async function createOrder(
     throw new ServiceError(409, "You cannot buy your own listing in the demo flow.");
   }
 
-  const buyerWalletAddress = user.solanaWalletAddress;
-  const intentFromAddress = normalizeWalletAddress(data.transferIntent.fromAddress);
-  const intentToAddress = normalizeWalletAddress(data.transferIntent.toAddress);
-  const intentMint = normalizeWalletAddress(data.transferIntent.mint);
+  const buyerWalletAddress = user.id;
+  const intentFromAddress = requireWalletAddress(data.transferIntent.fromAddress);
+  const intentToAddress = requireWalletAddress(data.transferIntent.toAddress);
+  const intentMint = requireWalletAddress(data.transferIntent.mint);
 
   if (intentFromAddress !== buyerWalletAddress || intentToAddress !== buyerWalletAddress) {
     throw new ServiceError(
       409,
-      "The signed wallet intent must come from the wallet linked to your Fortis account.",
+      "The signed wallet intent must come from the wallet used for your Fortis SIWS session.",
     );
   }
 
@@ -259,9 +254,9 @@ export async function createOrder(
 export async function getOrderForUser(
   supabase: SupabaseClient<Database>,
   orderId: number,
-  userAuthUserId: string,
+  userWalletAddress: string,
 ): Promise<OrderDto> {
-  const user = await requireMarketplaceUser(supabase, userAuthUserId);
+  const user = await requireMarketplaceUser(supabase, userWalletAddress);
   const { data: existingOrder, error: orderError } = await supabase
     .from("orders")
     .select(ORDER_SELECT)

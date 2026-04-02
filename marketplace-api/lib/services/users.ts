@@ -1,32 +1,31 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
-import { PublicKey } from "@solana/web3.js";
 
-import { env } from "@/lib/env";
 import { ServiceError } from "@/lib/services/service-error";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
+import { normalizeWalletAddress } from "@/lib/supabase/wallet-auth";
 
 type MarketplaceUserRecord = Pick<
   Database["public"]["Tables"]["users"]["Row"],
-  "id" | "email" | "solana_wallet_address"
+  "auth_user_id" | "id" | "solana_wallet_address"
 >;
 
 export interface AuthenticatedMarketplaceUser {
-  email: string | null;
-  id: string;
+  authUserId: string;
+  walletAddress: string;
 }
 
 export interface MarketplaceUser {
-  id: number;
-  email: string;
-  solanaWalletAddress: string | null;
+  authUserId: string | null;
+  id: string;
+  solanaWalletAddress: string;
 }
 
 function toMarketplaceUser(user: MarketplaceUserRecord): MarketplaceUser {
   return {
+    authUserId: user.auth_user_id ?? null,
     id: user.id,
-    email: user.email,
-    solanaWalletAddress: user.solana_wallet_address ?? null,
+    solanaWalletAddress: user.solana_wallet_address,
   };
 }
 
@@ -56,19 +55,42 @@ function isRowLevelSecurityViolation(error: PostgrestError | null) {
   return details.includes("row-level security");
 }
 
-function normalizeAuthEmail(authUser: AuthenticatedMarketplaceUser) {
-  const normalizedEmail = authUser.email?.trim().toLowerCase();
-  return normalizedEmail || `${authUser.id}@auth.local`;
+function requireNormalizedWalletAddress(walletAddress: string) {
+  const normalizedWalletAddress = normalizeWalletAddress(walletAddress);
+
+  if (!normalizedWalletAddress) {
+    throw new ServiceError(400, "Connect a valid Solana wallet before continuing.");
+  }
+
+  return normalizedWalletAddress;
 }
 
-async function getMarketplaceUserRecord(
+async function getMarketplaceUserRecordByAuthUserId(
   supabase: SupabaseClient<Database>,
   authUserId: string,
-): Promise<MarketplaceUserRecord | null> {
+) {
   const { data, error } = await supabase
     .from("users")
-    .select("id,email,solana_wallet_address")
+    .select("id,auth_user_id,solana_wallet_address")
     .eq("auth_user_id", authUserId)
+    .maybeSingle();
+
+  if (error) {
+    throw new ServiceError(500, error.message);
+  }
+
+  return data;
+}
+
+async function getMarketplaceUserRecordByWalletAddress(
+  supabase: SupabaseClient<Database>,
+  walletAddress: string,
+) {
+  const normalizedWalletAddress = requireNormalizedWalletAddress(walletAddress);
+  const { data, error } = await supabase
+    .from("users")
+    .select("id,auth_user_id,solana_wallet_address")
+    .eq("id", normalizedWalletAddress)
     .maybeSingle();
 
   if (error) {
@@ -82,21 +104,27 @@ async function upsertMarketplaceUserRecord(
   supabase: SupabaseClient<Database>,
   authUser: AuthenticatedMarketplaceUser,
 ) {
+  const normalizedWalletAddress = requireNormalizedWalletAddress(authUser.walletAddress);
   const { data, error } = await supabase
     .from("users")
     .upsert(
       {
-        auth_user_id: authUser.id,
-        email: normalizeAuthEmail(authUser),
+        auth_user_id: authUser.authUserId,
+        id: normalizedWalletAddress,
+        solana_wallet_address: normalizedWalletAddress,
       },
       {
-        onConflict: "auth_user_id",
+        onConflict: "id",
       },
     )
-    .select("id,email,solana_wallet_address")
+    .select("id,auth_user_id,solana_wallet_address")
     .maybeSingle();
 
-  if (isUniqueViolation(error, "email") || isRowLevelSecurityViolation(error)) {
+  if (
+    isRowLevelSecurityViolation(error) ||
+    isUniqueViolation(error, "auth_user_id") ||
+    isUniqueViolation(error, "solana_wallet_address")
+  ) {
     return null;
   }
 
@@ -107,61 +135,78 @@ async function upsertMarketplaceUserRecord(
   return data;
 }
 
-async function upsertMarketplaceUserRecordWithAdmin(authUser: AuthenticatedMarketplaceUser) {
+async function repairMarketplaceUserRecordWithAdmin(authUser: AuthenticatedMarketplaceUser) {
   const supabase = createAdminClient();
-  const normalizedEmail = normalizeAuthEmail(authUser);
+  const normalizedWalletAddress = requireNormalizedWalletAddress(authUser.walletAddress);
 
-  const { data: existingUser, error: existingUserError } = await supabase
+  const { data: existingByAuthUserId, error: existingByAuthUserIdError } = await supabase
     .from("users")
-    .select("id,email,solana_wallet_address")
-    .eq("auth_user_id", authUser.id)
+    .select("id,auth_user_id,solana_wallet_address")
+    .eq("auth_user_id", authUser.authUserId)
     .maybeSingle();
 
-  if (existingUserError) {
-    throw new ServiceError(500, existingUserError.message);
+  if (existingByAuthUserIdError) {
+    throw new ServiceError(500, existingByAuthUserIdError.message);
   }
 
-  if (existingUser) {
-    return existingUser;
+  if (existingByAuthUserId && existingByAuthUserId.id !== normalizedWalletAddress) {
+    const { error } = await supabase
+      .from("users")
+      .update({
+        auth_user_id: null,
+      })
+      .eq("auth_user_id", authUser.authUserId)
+      .neq("id", normalizedWalletAddress);
+
+    if (error) {
+      throw new ServiceError(500, error.message);
+    }
   }
 
-  const { data: claimedUser, error: claimError } = await supabase
+  const { data: existingByWallet, error: existingByWalletError } = await supabase
     .from("users")
-    .update({
-      auth_user_id: authUser.id,
-      email: normalizedEmail,
-    })
-    .eq("email", normalizedEmail)
-    .is("auth_user_id", null)
-    .select("id,email,solana_wallet_address")
+    .select("id,auth_user_id,solana_wallet_address")
+    .eq("id", normalizedWalletAddress)
     .maybeSingle();
 
-  if (claimError) {
-    throw new ServiceError(500, claimError.message);
+  if (existingByWalletError) {
+    throw new ServiceError(500, existingByWalletError.message);
   }
 
-  if (claimedUser) {
-    return claimedUser;
+  if (existingByWallet) {
+    const { data, error } = await supabase
+      .from("users")
+      .update({
+        auth_user_id: authUser.authUserId,
+        solana_wallet_address: normalizedWalletAddress,
+      })
+      .eq("id", normalizedWalletAddress)
+      .select("id,auth_user_id,solana_wallet_address")
+      .maybeSingle();
+
+    if (error) {
+      throw new ServiceError(500, error.message);
+    }
+
+    if (data) {
+      return data;
+    }
   }
 
   const { data, error } = await supabase
     .from("users")
-    .upsert(
-      {
-        auth_user_id: authUser.id,
-        email: normalizedEmail,
-      },
-      {
-        onConflict: "auth_user_id",
-      },
-    )
-    .select("id,email,solana_wallet_address")
+    .insert({
+      auth_user_id: authUser.authUserId,
+      id: normalizedWalletAddress,
+      solana_wallet_address: normalizedWalletAddress,
+    })
+    .select("id,auth_user_id,solana_wallet_address")
     .maybeSingle();
 
-  if (isUniqueViolation(error, "email")) {
+  if (isUniqueViolation(error, "id") || isUniqueViolation(error, "solana_wallet_address")) {
     throw new ServiceError(
       409,
-      "Another marketplace profile already uses this email address. Resolve the duplicate profile in Supabase before continuing.",
+      "This wallet is already linked to another Fortis identity. Sign in with that wallet instead.",
     );
   }
 
@@ -170,7 +215,7 @@ async function upsertMarketplaceUserRecordWithAdmin(authUser: AuthenticatedMarke
   }
 
   if (!data) {
-    throw new ServiceError(500, "Failed to synchronize the marketplace profile.");
+    throw new ServiceError(500, "Failed to synchronize the wallet-based marketplace profile.");
   }
 
   return data;
@@ -180,10 +225,30 @@ export async function ensureMarketplaceUser(
   supabase: SupabaseClient<Database>,
   authUser: AuthenticatedMarketplaceUser,
 ): Promise<MarketplaceUser> {
-  const existingUser = await getMarketplaceUserRecord(supabase, authUser.id);
+  const normalizedWalletAddress = requireNormalizedWalletAddress(authUser.walletAddress);
+  const existingByAuthUserId = await getMarketplaceUserRecordByAuthUserId(
+    supabase,
+    authUser.authUserId,
+  );
 
-  if (existingUser) {
-    return toMarketplaceUser(existingUser);
+  if (existingByAuthUserId && existingByAuthUserId.id === normalizedWalletAddress) {
+    return toMarketplaceUser(existingByAuthUserId);
+  }
+
+  const existingByWallet = await getMarketplaceUserRecordByWalletAddress(
+    supabase,
+    normalizedWalletAddress,
+  );
+
+  if (
+    existingByWallet &&
+    (!existingByWallet.auth_user_id || existingByWallet.auth_user_id === authUser.authUserId)
+  ) {
+    const claimedUser = await upsertMarketplaceUserRecord(supabase, authUser);
+
+    if (claimedUser) {
+      return toMarketplaceUser(claimedUser);
+    }
   }
 
   const insertedUser = await upsertMarketplaceUserRecord(supabase, authUser);
@@ -192,12 +257,14 @@ export async function ensureMarketplaceUser(
     return toMarketplaceUser(insertedUser);
   }
 
-  if (env.SUPABASE_SERVICE_ROLE_KEY) {
-    const adminUser = await upsertMarketplaceUserRecordWithAdmin(authUser);
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
+    const adminUser = await repairMarketplaceUserRecordWithAdmin(authUser);
     return toMarketplaceUser(adminUser);
   }
 
-  const refreshedUser = await getMarketplaceUserRecord(supabase, authUser.id);
+  const refreshedUser =
+    (await getMarketplaceUserRecordByAuthUserId(supabase, authUser.authUserId)) ??
+    (await getMarketplaceUserRecordByWalletAddress(supabase, normalizedWalletAddress));
 
   if (refreshedUser) {
     return toMarketplaceUser(refreshedUser);
@@ -205,74 +272,23 @@ export async function ensureMarketplaceUser(
 
   throw new ServiceError(
     409,
-    "Your marketplace profile is not ready yet. Re-run the latest Supabase migration or configure SUPABASE_SERVICE_ROLE_KEY so Fortis can repair the profile mapping automatically.",
+    "Your wallet profile is not ready yet. Re-run the latest Supabase migration or configure SUPABASE_SERVICE_ROLE_KEY so Fortis can repair the SIWS profile mapping automatically.",
   );
 }
 
 export async function requireMarketplaceUser(
   supabase: SupabaseClient<Database>,
-  authUserId: string,
+  walletAddress: string,
 ): Promise<MarketplaceUser> {
-  const user = await getMarketplaceUserRecord(supabase, authUserId);
+  const normalizedWalletAddress = requireNormalizedWalletAddress(walletAddress);
+  const user = await getMarketplaceUserRecordByWalletAddress(supabase, normalizedWalletAddress);
 
   if (!user) {
     throw new ServiceError(
       409,
-      "Your marketplace profile is not ready yet. Please sign out and sign in again.",
+      "Your wallet profile is not ready yet. Sign out and sign in with the same wallet again.",
     );
   }
 
   return toMarketplaceUser(user);
-}
-
-function normalizeWalletAddress(walletAddress: string) {
-  const value = walletAddress.trim();
-
-  if (!value) {
-    throw new ServiceError(400, "Connect a Solana wallet before continuing.");
-  }
-
-  try {
-    return new PublicKey(value).toBase58();
-  } catch (error) {
-    throw new ServiceError(
-      400,
-      error instanceof Error ? error.message : "Invalid Solana wallet address.",
-    );
-  }
-}
-
-export async function bindSolanaWalletAddress(
-  supabase: SupabaseClient<Database>,
-  authUserId: string,
-  walletAddress: string,
-) {
-  const marketplaceUser = await requireMarketplaceUser(supabase, authUserId);
-  const normalizedWalletAddress = normalizeWalletAddress(walletAddress);
-
-  const { data, error } = await supabase
-    .from("users")
-    .update({
-      solana_wallet_address: normalizedWalletAddress,
-    })
-    .eq("id", marketplaceUser.id)
-    .select("id,email,solana_wallet_address")
-    .single();
-
-  if (isUniqueViolation(error, "solana_wallet_address")) {
-    throw new ServiceError(
-      409,
-      "This wallet is already linked to another Fortis account. Disconnect it there first.",
-    );
-  }
-
-  if (error) {
-    throw new ServiceError(500, error.message);
-  }
-
-  if (!data) {
-    throw new ServiceError(500, "Failed to update the marketplace wallet profile.");
-  }
-
-  return toMarketplaceUser(data);
 }

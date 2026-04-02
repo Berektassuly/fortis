@@ -16,29 +16,23 @@ export interface Database {
     Tables: {
       users: {
         Row: {
-          id: number;
+          id: string;
           auth_user_id: string | null;
-          email: string;
-          password_hash: string | null;
-          solana_wallet_address: string | null;
+          solana_wallet_address: string;
           created_at: string;
           updated_at: string;
         };
         Insert: {
-          id?: number;
+          id: string;
           auth_user_id?: string | null;
-          email: string;
-          password_hash?: string | null;
-          solana_wallet_address?: string | null;
+          solana_wallet_address: string;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
-          id?: number;
+          id?: string;
           auth_user_id?: string | null;
-          email?: string;
-          password_hash?: string | null;
-          solana_wallet_address?: string | null;
+          solana_wallet_address?: string;
           created_at?: string;
           updated_at?: string;
         };
@@ -62,7 +56,7 @@ export interface Database {
           token_mint_address: string | null;
           tokenization_status: ListingTokenizationStatus | null;
           tokenization_error: string | null;
-          owner_id: number | null;
+          owner_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -83,7 +77,7 @@ export interface Database {
           token_mint_address?: string | null;
           tokenization_status?: ListingTokenizationStatus | null;
           tokenization_error?: string | null;
-          owner_id?: number | null;
+          owner_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -104,7 +98,7 @@ export interface Database {
           token_mint_address?: string | null;
           tokenization_status?: ListingTokenizationStatus | null;
           tokenization_error?: string | null;
-          owner_id?: number | null;
+          owner_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -122,7 +116,7 @@ export interface Database {
         Row: {
           id: number;
           listing_id: number | null;
-          user_id: number | null;
+          user_id: string | null;
           status: OrderStatus | null;
           tx_hash: string | null;
           fortis_request_id: string | null;
@@ -137,7 +131,7 @@ export interface Database {
         Insert: {
           id?: number;
           listing_id?: number | null;
-          user_id?: number | null;
+          user_id?: string | null;
           status?: OrderStatus | null;
           tx_hash?: string | null;
           fortis_request_id?: string | null;
@@ -152,7 +146,7 @@ export interface Database {
         Update: {
           id?: number;
           listing_id?: number | null;
-          user_id?: number | null;
+          user_id?: string | null;
           status?: OrderStatus | null;
           tx_hash?: string | null;
           fortis_request_id?: string | null;

@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 
 import { getOptionalSupabaseConfig } from "@/lib/supabase/config";
 import { applyRedirectTarget, getSafeRedirectPath } from "@/lib/supabase/redirects";
+import { extractWalletAddressFromSupabaseUser } from "@/lib/supabase/wallet-auth";
 
 const PRIVATE_PATHS = ["/create"];
 const AUTH_PATHS = ["/login"];
@@ -58,9 +59,10 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  const { data } = await supabase.auth.getClaims();
-  const claims = data?.claims;
-  const isAuthenticated = Boolean(claims?.sub);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const isAuthenticated = Boolean(user && extractWalletAddressFromSupabaseUser(user));
   const isAuthPath = matchesPath(pathname, AUTH_PATHS);
 
   if (!isAuthenticated && isPrivatePath) {
