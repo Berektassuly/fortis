@@ -9,7 +9,7 @@ import type { Database } from "@/lib/supabase/database.types";
 import { resolveMarketplaceSession } from "@/lib/supabase/marketplace-session";
 
 export async function toAuthenticatedMarketplaceUser(
-  supabase: Pick<SupabaseClient<Database>, "from">,
+  supabase: Pick<SupabaseClient<Database>, "from" | "rpc">,
   user: Pick<User, "app_metadata" | "id" | "identities">,
 ): Promise<AuthenticatedMarketplaceUser> {
   const authUser = await resolveMarketplaceSession(supabase, user);

@@ -12,6 +12,14 @@ function matchesPath(pathname: string, candidates: string[]) {
   return candidates.some((candidate) => pathname === candidate || pathname.startsWith(`${candidate}/`));
 }
 
+function withResponseCookies(source: NextResponse, target: NextResponse) {
+  source.cookies.getAll().forEach((cookie) => {
+    target.cookies.set(cookie);
+  });
+
+  return target;
+}
+
 export async function updateSession(request: NextRequest) {
   const supabaseConfig = getOptionalSupabaseConfig();
   const pathname = request.nextUrl.pathname;
@@ -74,13 +82,13 @@ export async function updateSession(request: NextRequest) {
       getSafeRedirectPath(pathname, "/create"),
     );
 
-    return NextResponse.redirect(redirectUrl);
+    return withResponseCookies(response, NextResponse.redirect(redirectUrl));
   }
 
   if (isAuthenticated && isAuthPath) {
     const redirectUrl = request.nextUrl.clone();
     applyRedirectTarget(redirectUrl, request.nextUrl.searchParams.get("next"), "/");
-    return NextResponse.redirect(redirectUrl);
+    return withResponseCookies(response, NextResponse.redirect(redirectUrl));
   }
 
   return response;

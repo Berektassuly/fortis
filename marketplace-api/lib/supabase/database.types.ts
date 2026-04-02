@@ -180,7 +180,10 @@ export interface Database {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      current_solana_wallet_address: {
+        Args: Record<PropertyKey, never>;
+        Returns: string | null;
+      };
     };
     Enums: {
       [_ in never]: never;

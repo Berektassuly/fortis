@@ -1,15 +1,49 @@
-import type { SupabaseClient, User } from "@supabase/supabase-js";
+import type { PostgrestError, SupabaseClient, User } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
-import { extractWalletAddressFromSupabaseUser } from "@/lib/supabase/wallet-auth";
+import {
+  extractWalletAddressFromSupabaseUser,
+  normalizeWalletAddress,
+} from "@/lib/supabase/wallet-auth";
 
 export interface ResolvedMarketplaceSession {
   authUserId: string;
   walletAddress: string;
 }
 
+type MarketplaceSessionSupabaseClient = Pick<SupabaseClient<Database>, "from" | "rpc">;
+
+function isMissingWalletIdentityFunctionError(error: PostgrestError | null) {
+  if (!error) {
+    return false;
+  }
+
+  return (
+    error.code === "PGRST202" ||
+    `${error.message ?? ""} ${error.details ?? ""}`
+      .toLowerCase()
+      .includes("current_solana_wallet_address")
+  );
+}
+
+async function resolveWalletAddressFromAuthContext(
+  supabase: Pick<SupabaseClient<Database>, "rpc">,
+) {
+  const { data, error } = await supabase.rpc("current_solana_wallet_address");
+
+  if (error) {
+    if (isMissingWalletIdentityFunctionError(error)) {
+      return null;
+    }
+
+    throw error;
+  }
+
+  return normalizeWalletAddress(data ?? "");
+}
+
 export async function resolveMarketplaceSession(
-  supabase: Pick<SupabaseClient<Database>, "from">,
+  supabase: MarketplaceSessionSupabaseClient,
   user: Pick<User, "app_metadata" | "id" | "identities"> | null | undefined,
 ): Promise<ResolvedMarketplaceSession | null> {
   if (!user) {
@@ -25,8 +59,21 @@ export async function resolveMarketplaceSession(
     };
   }
 
-  // Supabase Web3 sessions can arrive without provider identity data on the
-  // JS user payload. Fall back to the RLS-protected marketplace profile row.
+  // Supabase Web3 sessions can arrive before the JS user payload exposes the
+  // wallet identity or before the public.users row has been synchronized.
+  // Resolve the wallet from the authenticated database context first so the
+  // server can still recognize a valid SIWS session and repair the profile row.
+  const walletAddressFromAuthContext = await resolveWalletAddressFromAuthContext(supabase);
+
+  if (walletAddressFromAuthContext) {
+    return {
+      authUserId: user.id,
+      walletAddress: walletAddressFromAuthContext,
+    };
+  }
+
+  // Fall back to the RLS-protected marketplace profile row for projects that
+  // have the wallet-first migration applied but the auth payload is sparse.
   const { data, error } = await supabase
     .from("users")
     .select("auth_user_id,solana_wallet_address")

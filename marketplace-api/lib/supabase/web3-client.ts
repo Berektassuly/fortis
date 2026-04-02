@@ -15,6 +15,19 @@ export interface WalletSignInResult {
   walletAddress: string;
 }
 
+function isAuthApiErrorWithCode(
+  error: unknown,
+  code: string,
+): error is { code: string; message?: string } {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof (error as { code?: unknown }).code === "string" &&
+    (error as { code: string }).code === code
+  );
+}
+
 export async function signInWithConnectedWallet({
   connectedWalletAddress,
   supabase,
@@ -64,6 +77,12 @@ export async function signInWithConnectedWallet({
   });
 
   if (error) {
+    if (isAuthApiErrorWithCode(error, "web3_provider_disabled")) {
+      throw new Error(
+        "Supabase Web3 auth is disabled for this project. Enable Authentication > Providers > Web3 Wallet > Solana before trying SIWS again.",
+      );
+    }
+
     throw error;
   }
 
