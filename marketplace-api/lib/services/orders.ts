@@ -1,6 +1,7 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 
 import { toOrderDto, toOrderResult, type OrderDto, type OrderResult } from "@/lib/dto/order";
+import { assertValidTransferIntentSignature } from "@/lib/solana/transfer-intent";
 import {
   getFortisTransferRequest,
   submitTransferRequestToFortis,
@@ -9,7 +10,6 @@ import {
 import { ServiceError } from "@/lib/services/service-error";
 import { requireMarketplaceUser } from "@/lib/services/users";
 import type { Database, OrderStatus } from "@/lib/supabase/database.types";
-import { normalizeWalletAddress } from "@/lib/supabase/wallet-auth";
 import { createOrderRequestSchema } from "@/lib/validators/orders";
 import { fortisSuccessWebhookSchema } from "@/lib/validators/webhooks";
 
@@ -20,16 +20,6 @@ interface OrderStatusUpdate {
   errorMessage: string | null;
   status: OrderStatus;
   txHash: string | null;
-}
-
-function requireWalletAddress(walletAddress: string) {
-  const normalizedWalletAddress = normalizeWalletAddress(walletAddress);
-
-  if (!normalizedWalletAddress) {
-    throw new ServiceError(400, "Invalid Solana wallet address.");
-  }
-
-  return normalizedWalletAddress;
 }
 
 function normalizeOrderStatus(status: string | null | undefined): OrderStatus {
@@ -147,9 +137,12 @@ export async function createOrder(
   }
 
   const buyerWalletAddress = user.id;
-  const intentFromAddress = requireWalletAddress(data.transferIntent.fromAddress);
-  const intentToAddress = requireWalletAddress(data.transferIntent.toAddress);
-  const intentMint = requireWalletAddress(data.transferIntent.mint);
+  const verifiedTransferIntent = await assertValidTransferIntentSignature(
+    data.transferIntent,
+  );
+  const intentFromAddress = verifiedTransferIntent.fromAddress;
+  const intentToAddress = verifiedTransferIntent.toAddress;
+  const intentMint = verifiedTransferIntent.mint;
 
   if (intentFromAddress !== buyerWalletAddress || intentToAddress !== buyerWalletAddress) {
     throw new ServiceError(
@@ -172,7 +165,7 @@ export async function createOrder(
       listing_id: listing.id,
       user_id: user.id,
       buyer_wallet_address: buyerWalletAddress,
-      nonce: data.transferIntent.nonce,
+      nonce: verifiedTransferIntent.nonce,
       seller_wallet_address: listing.seller_wallet_address,
       status: "Pending",
       token_mint_address: listing.token_mint_address,
@@ -194,11 +187,11 @@ export async function createOrder(
 
   try {
     const fortisTransfer = await submitTransferRequestToFortis({
-      amount: data.transferIntent.amount,
+      amount: verifiedTransferIntent.amount,
       from_address: buyerWalletAddress,
       mint: listing.token_mint_address,
-      nonce: data.transferIntent.nonce,
-      signature: data.transferIntent.signature,
+      nonce: verifiedTransferIntent.nonce,
+      signature: verifiedTransferIntent.signature,
       source_owner_address: listing.seller_wallet_address,
       to_address: buyerWalletAddress,
     });

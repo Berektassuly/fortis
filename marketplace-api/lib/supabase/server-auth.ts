@@ -9,7 +9,7 @@ import type { Database } from "@/lib/supabase/database.types";
 import { extractWalletAddressFromSupabaseUser } from "@/lib/supabase/wallet-auth";
 
 export function toAuthenticatedMarketplaceUser(
-  user: Pick<User, "id" | "identities" | "user_metadata">,
+  user: Pick<User, "app_metadata" | "id" | "identities">,
 ): AuthenticatedMarketplaceUser {
   const walletAddress = extractWalletAddressFromSupabaseUser(user);
 

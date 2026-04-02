@@ -69,14 +69,15 @@ function getWalletAddressFromIdentity(identity: UserIdentity) {
 }
 
 export function extractWalletAddressFromSupabaseUser(
-  user: Pick<User, "identities" | "user_metadata"> | null | undefined,
+  user: Pick<User, "app_metadata" | "identities"> | null | undefined,
 ): string | null {
-  const fromMetadata = getWalletAddressFromMetadata(
-    user?.user_metadata as Record<string, unknown> | null | undefined,
+  // Never trust user_metadata here: Supabase lets end users mutate it themselves.
+  const fromAppMetadata = getWalletAddressFromMetadata(
+    user?.app_metadata as Record<string, unknown> | null | undefined,
   );
 
-  if (fromMetadata) {
-    return fromMetadata;
+  if (fromAppMetadata) {
+    return fromAppMetadata;
   }
 
   for (const identity of user?.identities ?? []) {
