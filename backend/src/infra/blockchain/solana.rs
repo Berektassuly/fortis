@@ -40,8 +40,9 @@ use spl_transfer_hook_interface::{
 
 use crate::domain::types::{TransferType, fortis_rwa_program_pubkey};
 use crate::domain::{
-    AppError, AssetType, BlockchainClient, BlockchainError, ComplianceLevel,
-    TokenizeListingRequest, TokenizeListingResult, TransferRequest, WalletApprovalSubmission,
+    AppError, AssetType, BlockchainClient, BlockchainError, BlockchainStatus, BlockchainSubmission,
+    ComplianceLevel, TokenizeListingRequest, TokenizeListingResult, TransferRequest,
+    WalletApprovalSubmission,
 };
 
 /// Configuration for the RPC client
@@ -1223,7 +1224,7 @@ impl BlockchainClient for RpcBlockchainClient {
     async fn submit_transaction(
         &self,
         request: &TransferRequest,
-    ) -> Result<(String, String), AppError> {
+    ) -> Result<BlockchainSubmission, AppError> {
         info!(id = %request.id, "Submitting transaction for request");
 
         // Check if we have SDK client (for real transactions)
@@ -1231,13 +1232,14 @@ impl BlockchainClient for RpcBlockchainClient {
             // Mock implementation for testing (when SDK client not available)
             debug!("Using mock implementation for submit_transaction");
             let signature = self.sign(request.id.as_bytes());
-            return Ok((
-                format!("tx_{}", &signature[..16]),
-                "mock_blockhash".to_string(),
-            ));
+            return Ok(BlockchainSubmission {
+                signature: format!("tx_{}", &signature[..16]),
+                blockhash: "mock_blockhash".to_string(),
+                status: BlockchainStatus::Submitted,
+            });
         }
 
-        match &request.transfer_details {
+        let (signature, blockhash) = match &request.transfer_details {
             TransferType::Public { amount } => {
                 self.transfer_token_internal(
                     &request.to_address,
@@ -1247,7 +1249,19 @@ impl BlockchainClient for RpcBlockchainClient {
                 )
                 .await
             }
-        }
+        }?;
+
+        let status = if self.submission_strategy.is_some() {
+            BlockchainStatus::Submitted
+        } else {
+            BlockchainStatus::Confirmed
+        };
+
+        Ok(BlockchainSubmission {
+            signature,
+            blockhash,
+            status,
+        })
     }
 
     #[instrument(skip(self))]
@@ -2666,9 +2680,10 @@ mod tests {
         };
         let result = client.submit_transaction(&request).await;
         assert!(result.is_ok());
-        let (signature, blockhash) = result.unwrap();
-        assert!(signature.starts_with("tx_")); // Mock format
-        assert!(!blockhash.is_empty());
+        let submission = result.unwrap();
+        assert!(submission.signature.starts_with("tx_")); // Mock format
+        assert!(!submission.blockhash.is_empty());
+        assert_eq!(submission.status, BlockchainStatus::Submitted);
     }
 
     // --- RETRY LOGIC WITH CALL TRACKING ---

@@ -1,9 +1,12 @@
 export class ServiceError extends Error {
+  public readonly statusCode: number;
+
   constructor(
-    public readonly statusCode: number,
+    statusCode: number,
     message: string,
   ) {
     super(message);
     this.name = "ServiceError";
+    this.statusCode = statusCode;
   }
 }

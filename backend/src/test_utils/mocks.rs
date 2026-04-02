@@ -8,10 +8,11 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use crate::domain::{
-    AppError, BlockchainClient, BlockchainError, BlockchainStatus, ComplianceDecision,
-    ComplianceLevel, ComplianceProvider, ComplianceStatus, DatabaseClient, DatabaseError,
-    PaginatedResponse, SubmitTransferRequest, TokenizeListingRequest, TokenizeListingResult,
-    TransferRequest, WalletApproval, WalletApprovalStatus, WalletApprovalSubmission,
+    AppError, BlockchainClient, BlockchainError, BlockchainStatus, BlockchainSubmission,
+    ComplianceDecision, ComplianceLevel, ComplianceProvider, ComplianceStatus, DatabaseClient,
+    DatabaseError, PaginatedResponse, SubmitTransferRequest, TokenizeListingRequest,
+    TokenizeListingResult, TransactionStatus, TransferRequest, WalletApproval,
+    WalletApprovalStatus, WalletApprovalSubmission,
 };
 
 /// Configuration for mock behavior
@@ -367,6 +368,39 @@ impl DatabaseClient for MockDatabaseClient {
         }
     }
 
+    async fn fail_transfers_waiting_for_wallet_approval(
+        &self,
+        wallet_address: &str,
+        token_mint: &str,
+        error: &str,
+    ) -> Result<u64, AppError> {
+        self.check_should_fail()?;
+        let mut storage = self.storage.lock().unwrap();
+        let mut updated = 0;
+
+        for item in storage.values_mut() {
+            let is_waiting_for_approval = item.to_address == wallet_address
+                && item.token_mint.as_deref() == Some(token_mint)
+                && matches!(
+                    item.blockchain_status,
+                    BlockchainStatus::Received
+                        | BlockchainStatus::Pending
+                        | BlockchainStatus::PendingSubmission
+                        | BlockchainStatus::Processing
+                );
+
+            if is_waiting_for_approval {
+                item.blockchain_status = BlockchainStatus::Failed;
+                item.blockchain_last_error = Some(error.to_string());
+                item.blockchain_next_retry_at = None;
+                item.updated_at = Utc::now();
+                updated += 1;
+            }
+        }
+
+        Ok(updated)
+    }
+
     /// Mock atomic claim: returns items with Processing status (like the real implementation)
     async fn get_pending_blockchain_requests(
         &self,
@@ -438,6 +472,23 @@ impl DatabaseClient for MockDatabaseClient {
             .find(|req| req.blockchain_signature.as_deref() == Some(signature))
             .cloned())
     }
+
+    async fn get_stale_submitted_transactions(
+        &self,
+        _older_than_secs: i64,
+        limit: i64,
+    ) -> Result<Vec<TransferRequest>, AppError> {
+        self.check_should_fail()?;
+        let storage = self.storage.lock().unwrap();
+        let mut items: Vec<_> = storage
+            .values()
+            .filter(|req| req.blockchain_status == BlockchainStatus::Submitted)
+            .take(limit as usize)
+            .cloned()
+            .collect();
+        items.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        Ok(items)
+    }
 }
 
 /// Mock blockchain client for testing
@@ -445,6 +496,9 @@ pub struct MockBlockchainClient {
     transactions: Arc<Mutex<Vec<String>>>,
     config: MockConfig,
     is_healthy: AtomicBool,
+    submission_status: Arc<Mutex<BlockchainStatus>>,
+    signature_status: Arc<Mutex<Option<TransactionStatus>>>,
+    blockhash_valid: AtomicBool,
 }
 
 impl MockBlockchainClient {
@@ -459,6 +513,9 @@ impl MockBlockchainClient {
             transactions: Arc::new(Mutex::new(Vec::new())),
             config,
             is_healthy: AtomicBool::new(true),
+            submission_status: Arc::new(Mutex::new(BlockchainStatus::Submitted)),
+            signature_status: Arc::new(Mutex::new(None)),
+            blockhash_valid: AtomicBool::new(true),
         }
     }
 
@@ -473,6 +530,18 @@ impl MockBlockchainClient {
 
     pub fn get_transactions(&self) -> Vec<String> {
         self.transactions.lock().unwrap().clone()
+    }
+
+    pub fn set_submission_status(&self, status: BlockchainStatus) {
+        *self.submission_status.lock().unwrap() = status;
+    }
+
+    pub fn set_signature_status(&self, status: Option<TransactionStatus>) {
+        *self.signature_status.lock().unwrap() = status;
+    }
+
+    pub fn set_blockhash_valid(&self, valid: bool) {
+        self.blockhash_valid.store(valid, Ordering::Relaxed);
     }
 
     fn check_should_fail(&self) -> Result<(), AppError> {
@@ -510,14 +579,18 @@ impl BlockchainClient for MockBlockchainClient {
     async fn submit_transaction(
         &self,
         request: &TransferRequest,
-    ) -> Result<(String, String), AppError> {
+    ) -> Result<BlockchainSubmission, AppError> {
         self.check_should_fail()?;
         // Mock signature generation (e.g., hash of ID)
         let signature = format!("sig_{}", request.id);
         let blockhash = "mock_blockhash_abc123".to_string();
         let mut transactions = self.transactions.lock().unwrap();
         transactions.push(request.id.clone());
-        Ok((signature, blockhash))
+        Ok(BlockchainSubmission {
+            signature,
+            blockhash,
+            status: *self.submission_status.lock().unwrap(),
+        })
     }
 
     async fn get_transaction_status(&self, _signature: &str) -> Result<bool, AppError> {
@@ -585,6 +658,19 @@ impl BlockchainClient for MockBlockchainClient {
                 &token_mint[..8.min(token_mint.len())]
             )),
         })
+    }
+
+    async fn get_signature_status(
+        &self,
+        _signature: &str,
+    ) -> Result<Option<TransactionStatus>, AppError> {
+        self.check_should_fail()?;
+        Ok(self.signature_status.lock().unwrap().clone())
+    }
+
+    async fn is_blockhash_valid(&self, _blockhash: &str) -> Result<bool, AppError> {
+        self.check_should_fail()?;
+        Ok(self.blockhash_valid.load(Ordering::Relaxed))
     }
 
     async fn tokenize_listing(

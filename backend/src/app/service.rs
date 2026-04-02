@@ -419,7 +419,7 @@ impl AppService {
                     self.db_client
                         .update_blockchain_status(
                             id,
-                            BlockchainStatus::Submitted,
+                            BlockchainStatus::Confirmed,
                             Some(&original_sig),
                             None,
                             None,
@@ -431,7 +431,7 @@ impl AppService {
                         .await?;
 
                     let mut updated_request = transfer_request;
-                    updated_request.blockchain_status = BlockchainStatus::Submitted;
+                    updated_request.blockchain_status = BlockchainStatus::Confirmed;
                     updated_request.blockchain_signature = Some(original_sig);
                     updated_request.blockchain_last_error = None;
                     updated_request.last_error_type = LastErrorType::None;
@@ -462,25 +462,35 @@ impl AppService {
             .submit_transaction(&transfer_request)
             .await
         {
-            Ok((signature, blockhash)) => {
-                info!(id = %transfer_request.id, signature = %signature, "Retry submission successful");
+            Ok(submission) => {
+                info!(
+                    id = %transfer_request.id,
+                    signature = %submission.signature,
+                    status = %submission.status,
+                    "Retry submission successful"
+                );
                 self.db_client
                     .update_blockchain_status(
                         id,
-                        BlockchainStatus::Submitted,
-                        Some(&signature),
+                        submission.status,
+                        Some(&submission.signature),
                         None,
                         None,
-                        Some(&blockhash),
+                        Some(&submission.blockhash),
                     )
                     .await?;
                 self.db_client
-                    .update_jito_tracking(id, None, LastErrorType::None, Some(&blockhash))
+                    .update_jito_tracking(
+                        id,
+                        None,
+                        LastErrorType::None,
+                        Some(&submission.blockhash),
+                    )
                     .await?;
                 let mut updated_request = transfer_request;
-                updated_request.blockchain_status = BlockchainStatus::Submitted;
-                updated_request.blockchain_signature = Some(signature.clone());
-                updated_request.blockhash_used = Some(blockhash);
+                updated_request.blockchain_status = submission.status;
+                updated_request.blockchain_signature = Some(submission.signature);
+                updated_request.blockhash_used = Some(submission.blockhash);
                 updated_request.blockchain_last_error = None;
                 updated_request.blockchain_next_retry_at = None;
                 updated_request.last_error_type = LastErrorType::None;
@@ -645,6 +655,29 @@ impl AppService {
                     )
                     .await?;
 
+                if status == WalletApprovalStatus::Failed {
+                    let transfer_error = format!(
+                        "Wallet approval failed for {} on mint {}: {}",
+                        approval.wallet_address, approval.token_mint, e
+                    );
+                    let failed_transfers = self
+                        .db_client
+                        .fail_transfers_waiting_for_wallet_approval(
+                            &approval.wallet_address,
+                            &approval.token_mint,
+                            &transfer_error,
+                        )
+                        .await?;
+
+                    warn!(
+                        approval_id = %approval.id,
+                        wallet = %approval.wallet_address,
+                        token_mint = %approval.token_mint,
+                        failed_transfers = failed_transfers,
+                        "Marked queued transfer requests as failed after terminal wallet approval failure"
+                    );
+                }
+
                 warn!(
                     approval_id = %approval.id,
                     wallet = %approval.wallet_address,
@@ -704,7 +737,7 @@ impl AppService {
                     self.db_client
                         .update_blockchain_status(
                             &request.id,
-                            BlockchainStatus::Submitted,
+                            BlockchainStatus::Confirmed,
                             Some(original_sig),
                             None,
                             None,
@@ -815,26 +848,37 @@ impl AppService {
         let result = self.blockchain_client.submit_transaction(request).await;
 
         match result {
-            Ok((signature, blockhash)) => {
+            Ok(submission) => {
                 let transfer_type = if request.token_mint.is_some() {
                     "Token"
                 } else {
                     "SOL"
                 };
-                info!(id = %request.id, signature = %signature, r#type = %transfer_type, "Transfer successful");
+                info!(
+                    id = %request.id,
+                    signature = %submission.signature,
+                    status = %submission.status,
+                    r#type = %transfer_type,
+                    "Transfer successful"
+                );
                 self.db_client
                     .update_blockchain_status(
                         &request.id,
-                        BlockchainStatus::Submitted,
-                        Some(&signature),
+                        submission.status,
+                        Some(&submission.signature),
                         None,
                         None,
-                        Some(&blockhash),
+                        Some(&submission.blockhash),
                     )
                     .await?;
                 // Clear Jito tracking on success (persist blockhash for future retry logic)
                 self.db_client
-                    .update_jito_tracking(&request.id, None, LastErrorType::None, Some(&blockhash))
+                    .update_jito_tracking(
+                        &request.id,
+                        None,
+                        LastErrorType::None,
+                        Some(&submission.blockhash),
+                    )
                     .await?;
             }
             Err(e) => {
@@ -1235,6 +1279,59 @@ fn extract_blockhash_from_error(error: &AppError) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::{
+        BlockchainStatus, ComplianceDecision, ComplianceLevel, DatabaseClient,
+        SubmitTransferRequest, TransactionStatus, TransferType, WalletApprovalStatus,
+    };
+    use crate::test_utils::{MockBlockchainClient, MockComplianceProvider, MockDatabaseClient};
+
+    fn create_transfer_request(seed: u8) -> SubmitTransferRequest {
+        SubmitTransferRequest {
+            from_address: format!("from_{}", seed),
+            to_address: format!("to_{}", seed),
+            source_owner_address: None,
+            transfer_details: TransferType::Public { amount: 1 },
+            token_mint: Some(format!("mint_{}", seed)),
+            signature: format!("sig_{}", seed),
+            nonce: format!("019470a4-7e7c-7d3e-8f1a-2b3c4d5e6f{:02x}", seed),
+        }
+    }
+
+    async fn queue_transfer_ready_for_submission(
+        db: &Arc<MockDatabaseClient>,
+        request: &SubmitTransferRequest,
+    ) -> String {
+        let created = db.submit_transfer(request).await.unwrap();
+        let decision = ComplianceDecision::approved(
+            ComplianceLevel::Standard,
+            Some(1),
+            Some("Very low risk".to_string()),
+            Some("Mock approval".to_string()),
+        );
+        let approval = db
+            .enqueue_wallet_approval_if_missing(
+                request.token_mint.as_deref().unwrap(),
+                &request.to_address,
+                &decision,
+            )
+            .await
+            .unwrap();
+        db.mark_transfer_approved(&created.id, &decision, &approval)
+            .await
+            .unwrap();
+        db.update_wallet_approval_status(
+            &approval.id,
+            WalletApprovalStatus::Approved,
+            Some("approval_sig"),
+            None,
+            None,
+            Some(Utc::now()),
+        )
+        .await
+        .unwrap();
+        db.enqueue_transfer_submission(&created.id).await.unwrap();
+        created.id
+    }
 
     #[test]
     fn test_calculate_backoff() {
@@ -1249,5 +1346,111 @@ mod tests {
         assert_eq!(calculate_backoff(8), 256);
         assert_eq!(calculate_backoff(9), 256); // Capped at 2^8
         assert_eq!(calculate_backoff(10), 256);
+    }
+
+    #[tokio::test]
+    async fn test_terminal_wallet_approval_failure_marks_waiting_transfer_failed() {
+        let db = Arc::new(MockDatabaseClient::new());
+        let blockchain = Arc::new(MockBlockchainClient::failing("approval failed"));
+        let compliance = Arc::new(MockComplianceProvider::new());
+        let service = AppService::new(db.clone() as _, blockchain as _, compliance as _);
+
+        let request = create_transfer_request(1);
+        let created = db.submit_transfer(&request).await.unwrap();
+        let decision = ComplianceDecision::approved(
+            ComplianceLevel::Standard,
+            Some(1),
+            Some("Very low risk".to_string()),
+            Some("Mock approval".to_string()),
+        );
+        let approval = db
+            .enqueue_wallet_approval_if_missing(
+                request.token_mint.as_deref().unwrap(),
+                &request.to_address,
+                &decision,
+            )
+            .await
+            .unwrap();
+        db.mark_transfer_approved(&created.id, &decision, &approval)
+            .await
+            .unwrap();
+        db.enqueue_transfer_submission(&created.id).await.unwrap();
+
+        for _ in 0..MAX_RETRY_ATTEMPTS {
+            service
+                .process_single_wallet_approval(&approval)
+                .await
+                .unwrap();
+        }
+
+        let updated = db.get_transfer_request(&created.id).await.unwrap().unwrap();
+        assert_eq!(updated.blockchain_status, BlockchainStatus::Failed);
+        assert!(
+            updated
+                .blockchain_last_error
+                .as_deref()
+                .is_some_and(|message| message.contains("Wallet approval failed"))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_process_pending_submissions_records_confirmed_when_client_confirms_inline() {
+        let db = Arc::new(MockDatabaseClient::new());
+        let blockchain = Arc::new(MockBlockchainClient::new());
+        blockchain.set_submission_status(BlockchainStatus::Confirmed);
+        let compliance = Arc::new(MockComplianceProvider::new());
+        let service = AppService::new(db.clone() as _, blockchain as _, compliance as _);
+
+        let request = create_transfer_request(2);
+        let transfer_id = queue_transfer_ready_for_submission(&db, &request).await;
+
+        let processed = service.process_pending_submissions(10).await.unwrap();
+        assert_eq!(processed, 1);
+
+        let updated = db
+            .get_transfer_request(&transfer_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated.blockchain_status, BlockchainStatus::Confirmed);
+        assert_eq!(
+            updated.blockchain_signature,
+            Some(format!("sig_{}", transfer_id))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_stale_crank_confirms_submitted_transaction_without_webhook() {
+        let db = Arc::new(MockDatabaseClient::new());
+        let blockchain = Arc::new(MockBlockchainClient::new());
+        blockchain.set_signature_status(Some(TransactionStatus::Confirmed));
+        let compliance = Arc::new(MockComplianceProvider::new());
+        let service = AppService::new(db.clone() as _, blockchain as _, compliance as _);
+
+        let request = create_transfer_request(3);
+        let created = db.submit_transfer(&request).await.unwrap();
+        db.update_blockchain_status(
+            &created.id,
+            BlockchainStatus::Submitted,
+            Some("submitted_sig"),
+            None,
+            None,
+            Some("submitted_blockhash"),
+        )
+        .await
+        .unwrap();
+
+        let processed = service
+            .process_stale_submitted_transactions(0, 10)
+            .await
+            .unwrap();
+        assert_eq!(processed, 1);
+
+        let updated = db.get_transfer_request(&created.id).await.unwrap().unwrap();
+        assert_eq!(updated.blockchain_status, BlockchainStatus::Confirmed);
+        assert_eq!(
+            updated.blockchain_signature,
+            Some("submitted_sig".to_string())
+        );
     }
 }

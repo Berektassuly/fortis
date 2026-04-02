@@ -156,3 +156,26 @@ async fn test_post_bad_request_validation() {
     let response = router.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn test_submit_transfer_rejected_when_background_worker_disabled() {
+    let db = Arc::new(MockDatabaseClient::new());
+    let blockchain = Arc::new(MockBlockchainClient::new());
+    let compliance = Arc::new(MockComplianceProvider::new());
+    let state = Arc::new(
+        AppState::new(db as _, blockchain as _, compliance as _).with_runtime_flags(false, true),
+    );
+    let router = create_router(state);
+
+    let payload = create_signed_transfer_request(9, 1);
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/transfer-requests")
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_string(&payload).unwrap()))
+        .unwrap();
+
+    let response = router.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+}

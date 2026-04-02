@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { Database } from "@/lib/supabase/database.types";
+import type { Database } from "../supabase/database.types.ts";
 
 export const orderDtoSchema = z.object({
   id: z.number().int().positive(),

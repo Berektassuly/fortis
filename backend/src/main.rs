@@ -374,7 +374,8 @@ async fn main() -> Result<()> {
         Arc::new(compliance_provider),
         config.helius_webhook_secret.clone(),
         config.quicknode_webhook_secret.clone(),
-    );
+    )
+    .with_runtime_flags(config.enable_background_worker, config.enable_stale_crank);
 
     if config.helius_webhook_secret.is_some() {
         info!("   ✓ Helius webhook secret configured");
@@ -414,12 +415,12 @@ async fn main() -> Result<()> {
         info!("   ✓ Background worker started");
         Some(shutdown_tx)
     } else {
-        info!("   ○ Background worker disabled");
+        warn!("Background worker disabled: transfer submissions will be rejected");
         None
     };
 
     // Start stale transaction crank (active polling fallback for webhook failures)
-    let crank_shutdown_tx = if config.enable_stale_crank && config.enable_background_worker {
+    let crank_shutdown_tx = if config.enable_stale_crank {
         let crank_config = CrankConfig {
             poll_interval: std::time::Duration::from_secs(config.crank_poll_interval_secs),
             stale_after_secs: config.crank_stale_after_secs,
@@ -437,7 +438,6 @@ async fn main() -> Result<()> {
         info!("   ○ Stale transaction crank disabled");
         None
     } else {
-        // Background worker disabled, so crank is also disabled
         None
     };
 

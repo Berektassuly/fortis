@@ -637,6 +637,35 @@ impl DatabaseClient for PostgresClient {
         Ok(row.get("retry_count"))
     }
 
+    #[instrument(skip(self), fields(wallet = %wallet_address, token_mint = %token_mint))]
+    async fn fail_transfers_waiting_for_wallet_approval(
+        &self,
+        wallet_address: &str,
+        token_mint: &str,
+        error: &str,
+    ) -> Result<u64, AppError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE transfer_requests
+            SET blockchain_status = 'failed',
+                blockchain_last_error = $1,
+                blockchain_next_retry_at = NULL,
+                updated_at = NOW()
+            WHERE to_address = $2
+              AND token_mint = $3
+              AND blockchain_status IN ('received', 'pending', 'pending_submission', 'processing')
+            "#,
+        )
+        .bind(error)
+        .bind(wallet_address)
+        .bind(token_mint)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::Database(DatabaseError::Query(e.to_string())))?;
+
+        Ok(result.rows_affected())
+    }
+
     /// Get pending blockchain requests and atomically claim them for processing.
     /// Uses UPDATE...RETURNING with FOR UPDATE SKIP LOCKED to prevent race conditions.
     /// Returned rows are already in 'processing' status.

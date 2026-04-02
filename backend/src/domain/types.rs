@@ -164,6 +164,18 @@ impl std::fmt::Display for BlockchainStatus {
     }
 }
 
+/// Result of submitting a blockchain transaction.
+///
+/// Some providers submit asynchronously and return once the transaction is
+/// accepted by the RPC node (`submitted`), while others block until the
+/// transaction is already confirmed on-chain (`confirmed`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockchainSubmission {
+    pub signature: String,
+    pub blockhash: String,
+    pub status: BlockchainStatus,
+}
+
 /// Compliance status for a transfer
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, ToSchema)]
 #[serde(rename_all = "snake_case")]

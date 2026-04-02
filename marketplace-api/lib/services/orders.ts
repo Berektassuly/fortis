@@ -5,40 +5,20 @@ import { assertValidTransferIntentSignature } from "@/lib/solana/transfer-intent
 import {
   getFortisTransferRequest,
   submitTransferRequestToFortis,
-  type FortisTransferRequestResult,
 } from "@/lib/services/fortis-client";
+import {
+  applyFortisWebhookUpdate,
+  isTerminalOrderStatus,
+  mapFortisTransferToOrderUpdate,
+  persistOrderStatusUpdate,
+} from "@/lib/services/order-updates";
 import { ServiceError } from "@/lib/services/service-error";
 import { requireMarketplaceUser } from "@/lib/services/users";
-import type { Database, OrderStatus } from "@/lib/supabase/database.types";
+import type { Database } from "@/lib/supabase/database.types";
 import { createOrderRequestSchema } from "@/lib/validators/orders";
-import { fortisSuccessWebhookSchema } from "@/lib/validators/webhooks";
 
 const ORDER_SELECT =
   "id,listing_id,user_id,status,tx_hash,fortis_request_id,error_message";
-
-interface OrderStatusUpdate {
-  errorMessage: string | null;
-  status: OrderStatus;
-  txHash: string | null;
-}
-
-function normalizeOrderStatus(status: string | null | undefined): OrderStatus {
-  switch (status?.trim().toLowerCase()) {
-    case "created":
-      return "Created";
-    case "pending":
-      return "Pending";
-    case "processing":
-      return "Processing";
-    case "completed":
-    case "success":
-      return "Success";
-    case "failed":
-      return "Failed";
-    default:
-      return "Pending";
-  }
-}
 
 function isUniqueViolation(error: PostgrestError | null, columnName?: string) {
   if (!error || error.code !== "23505") {
@@ -51,55 +31,6 @@ function isUniqueViolation(error: PostgrestError | null, columnName?: string) {
 
   const details = `${error.details ?? ""} ${error.message}`.toLowerCase();
   return details.includes(columnName.toLowerCase());
-}
-
-function mapFortisTransferToOrderUpdate(
-  transferRequest: FortisTransferRequestResult,
-): OrderStatusUpdate {
-  const blockchainStatus = transferRequest.blockchain_status.toLowerCase();
-  const complianceStatus = transferRequest.compliance_status.toLowerCase();
-
-  if (blockchainStatus === "confirmed") {
-    return {
-      errorMessage: null,
-      status: "Success",
-      txHash: transferRequest.blockchain_signature ?? null,
-    };
-  }
-
-  if (
-    complianceStatus === "rejected" ||
-    blockchainStatus === "failed" ||
-    blockchainStatus === "expired"
-  ) {
-    return {
-      errorMessage:
-        transferRequest.blockchain_last_error ??
-        (complianceStatus === "rejected"
-          ? "Buyer compliance screening was rejected."
-          : "The blockchain transfer failed."),
-      status: "Failed",
-      txHash: transferRequest.blockchain_signature ?? null,
-    };
-  }
-
-  if (
-    blockchainStatus === "submitted" ||
-    blockchainStatus === "processing" ||
-    blockchainStatus === "pending_submission"
-  ) {
-    return {
-      errorMessage: null,
-      status: "Processing",
-      txHash: transferRequest.blockchain_signature ?? null,
-    };
-  }
-
-  return {
-    errorMessage: null,
-    status: "Pending" as OrderStatus,
-    txHash: transferRequest.blockchain_signature ?? null,
-  };
 }
 
 export async function createOrder(
@@ -269,33 +200,16 @@ export async function getOrderForUser(
 
   if (
     order.fortis_request_id &&
-    order.status !== "Success" &&
-    order.status !== "Failed"
+    !isTerminalOrderStatus(order.status)
   ) {
     try {
       const fortisTransfer = await getFortisTransferRequest(order.fortis_request_id);
-      const mappedStatus = mapFortisTransferToOrderUpdate(fortisTransfer);
-
-      const { data: refreshedOrder, error: refreshError } = await supabase
-        .from("orders")
-        .update({
-          error_message: mappedStatus.errorMessage,
-          status: mappedStatus.status,
-          tx_hash: mappedStatus.txHash,
-        })
-        .eq("id", order.id)
-        .select(ORDER_SELECT)
-        .single();
-
-      if (!refreshError) {
-        if (!refreshedOrder) {
-          throw new ServiceError(500, "Failed to refresh the Fortis order state.");
-        }
-
-        order = refreshedOrder;
-      } else {
-        console.error("Failed to persist refreshed Fortis transfer request", refreshError);
-      }
+      order = await persistOrderStatusUpdate(
+        supabase,
+        order,
+        mapFortisTransferToOrderUpdate(fortisTransfer),
+        ORDER_SELECT,
+      );
     } catch (error) {
       console.error("Failed to refresh Fortis transfer request", error);
     }
@@ -308,26 +222,5 @@ export async function applyFortisSuccessWebhook(
   supabase: SupabaseClient<Database>,
   input: unknown,
 ): Promise<OrderDto> {
-  const data = fortisSuccessWebhookSchema.parse(input);
-
-  const { data: updatedOrder, error } = await supabase
-    .from("orders")
-    .update({
-      error_message: null,
-      status: normalizeOrderStatus(data.status),
-      tx_hash: data.txHash ?? null,
-    })
-    .eq("id", data.orderId)
-    .select(ORDER_SELECT)
-    .maybeSingle();
-
-  if (error) {
-    throw new ServiceError(500, error.message);
-  }
-
-  if (!updatedOrder) {
-    throw new ServiceError(404, `Order ${data.orderId} was not found.`);
-  }
-
-  return toOrderDto(updatedOrder);
+  return applyFortisWebhookUpdate(supabase, input, ORDER_SELECT);
 }

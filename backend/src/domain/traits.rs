@@ -4,10 +4,10 @@ use async_trait::async_trait;
 
 use super::error::AppError;
 use super::types::{
-    BlockchainStatus, ComplianceDecision, ComplianceLevel, LastErrorType, PaginatedResponse,
-    SubmitTransferRequest, TokenizeListingRequest, TokenizeListingResult, TransactionStatus,
-    TransferRequest, WalletApproval, WalletApprovalStatus, WalletApprovalSubmission,
-    WalletRiskProfile,
+    BlockchainStatus, BlockchainSubmission, ComplianceDecision, ComplianceLevel, LastErrorType,
+    PaginatedResponse, SubmitTransferRequest, TokenizeListingRequest, TokenizeListingResult,
+    TransactionStatus, TransferRequest, WalletApproval, WalletApprovalStatus,
+    WalletApprovalSubmission, WalletRiskProfile,
 };
 use chrono::{DateTime, Utc};
 
@@ -97,6 +97,17 @@ pub trait DatabaseClient: Send + Sync {
 
     /// Increment retry count for a wallet approval job.
     async fn increment_wallet_approval_retry_count(&self, id: &str) -> Result<i32, AppError>;
+
+    /// Mark pending transfer requests waiting on a wallet approval as failed.
+    async fn fail_transfers_waiting_for_wallet_approval(
+        &self,
+        wallet_address: &str,
+        token_mint: &str,
+        error: &str,
+    ) -> Result<u64, AppError> {
+        let _ = (wallet_address, token_mint, error);
+        Ok(0)
+    }
 
     /// Get requests pending blockchain submission
     async fn get_pending_blockchain_requests(
@@ -206,11 +217,11 @@ pub trait BlockchainClient: Send + Sync {
     async fn health_check(&self) -> Result<(), AppError>;
 
     /// Submit a transaction using the transfer request details.
-    /// Returns (signature, blockhash) for Jito double-spend protection (blockhash used for expiry checks).
+    /// Returns the signature, blockhash, and the highest status known when submission returns.
     async fn submit_transaction(
         &self,
         request: &TransferRequest,
-    ) -> Result<(String, String), AppError>;
+    ) -> Result<BlockchainSubmission, AppError>;
 
     /// Get transaction confirmation status
     async fn get_transaction_status(&self, signature: &str) -> Result<bool, AppError> {
@@ -485,6 +496,15 @@ mod tests {
             Ok(1)
         }
 
+        async fn fail_transfers_waiting_for_wallet_approval(
+            &self,
+            _wallet_address: &str,
+            _token_mint: &str,
+            _error: &str,
+        ) -> Result<u64, AppError> {
+            Ok(0)
+        }
+
         async fn get_pending_blockchain_requests(
             &self,
             _limit: i64,
@@ -515,8 +535,12 @@ mod tests {
         async fn submit_transaction(
             &self,
             _request: &TransferRequest,
-        ) -> Result<(String, String), AppError> {
-            Ok(("sig_123".to_string(), "blockhash_default".to_string()))
+        ) -> Result<BlockchainSubmission, AppError> {
+            Ok(BlockchainSubmission {
+                signature: "sig_123".to_string(),
+                blockhash: "blockhash_default".to_string(),
+                status: BlockchainStatus::Submitted,
+            })
         }
 
         async fn tokenize_listing(

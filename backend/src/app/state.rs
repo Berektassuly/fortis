@@ -20,6 +20,10 @@ pub struct AppState {
     /// QuickNode webhook secret for authentication (optional)
     /// Used to validate incoming webhook payloads from QuickNode Streams
     pub quicknode_webhook_secret: Option<String>,
+    /// Whether the background worker is enabled for processing queued transfers.
+    pub background_worker_enabled: bool,
+    /// Whether the stale transaction crank is enabled for submitted transfers.
+    pub stale_crank_enabled: bool,
     /// Internal blocklist manager for local address screening
     pub blocklist: Option<Arc<BlocklistManager>>,
     /// Risk check service for pre-flight compliance screening
@@ -81,9 +85,23 @@ impl AppState {
             compliance_provider,
             helius_webhook_secret,
             quicknode_webhook_secret,
+            background_worker_enabled: true,
+            stale_crank_enabled: true,
             blocklist: None,
             risk_service: None,
         }
+    }
+
+    /// Add runtime processing flags to the application state (builder pattern).
+    #[must_use]
+    pub fn with_runtime_flags(
+        mut self,
+        background_worker_enabled: bool,
+        stale_crank_enabled: bool,
+    ) -> Self {
+        self.background_worker_enabled = background_worker_enabled;
+        self.stale_crank_enabled = stale_crank_enabled;
+        self
     }
 
     /// Add blocklist manager to the application state (builder pattern)

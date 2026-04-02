@@ -173,6 +173,14 @@ pub async fn submit_transfer_handler(
         return Ok(Json(existing));
     }
 
+    if !state.background_worker_enabled {
+        return Err(AppError::Config(crate::domain::ConfigError::InvalidValue {
+            key: "ENABLE_BACKGROUND_WORKER".to_string(),
+            message: "transfer submission is disabled because the background worker is not running"
+                .to_string(),
+        }));
+    }
+
     // Proceed with normal submission
     let request = state.service.submit_transfer(&payload).await?;
     Ok(Json(request))
@@ -632,7 +640,7 @@ impl IntoResponse for AppError {
                 ),
             },
             AppError::Config(_) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
+                StatusCode::SERVICE_UNAVAILABLE,
                 "configuration_error",
                 self.to_string(),
             ),
