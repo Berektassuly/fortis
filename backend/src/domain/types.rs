@@ -10,7 +10,7 @@ use validator::Validate;
 
 use crate::domain::AppError;
 
-pub const FORTIS_RWA_PROGRAM_ID: &str = "8oiLUNoBU3CrpuR8HhRTCawWfDog8WbYkcX1PkqmGvpk";
+pub const FORTIS_RWA_PROGRAM_ID: &str = "3zRs8akf1fNjxCp8k3kA46axFrcff8dQvrVPXsTrkvSZ";
 
 fn parse_pubkey(value: &str, field: &str) -> Result<Pubkey, AppError> {
     value.parse::<Pubkey>().map_err(|e| {

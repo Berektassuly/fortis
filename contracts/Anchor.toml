@@ -8,10 +8,10 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-rwa_tokenizer = "8oiLUNoBU3CrpuR8HhRTCawWfDog8WbYkcX1PkqmGvpk"
+rwa_tokenizer = "3zRs8akf1fNjxCp8k3kA46axFrcff8dQvrVPXsTrkvSZ"
 
 [programs.localnet]
-rwa_tokenizer = "8oiLUNoBU3CrpuR8HhRTCawWfDog8WbYkcX1PkqmGvpk"
+rwa_tokenizer = "3zRs8akf1fNjxCp8k3kA46axFrcff8dQvrVPXsTrkvSZ"
 
 [registry]
 url = "https://api.apr.dev"

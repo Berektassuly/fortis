@@ -47,7 +47,7 @@ use spl_tlv_account_resolution::{
 };
 use spl_transfer_hook_interface::instruction::{ExecuteInstruction, TransferHookInstruction};
 
-declare_id!("8oiLUNoBU3CrpuR8HhRTCawWfDog8WbYkcX1PkqmGvpk");
+declare_id!("3zRs8akf1fNjxCp8k3kA46axFrcff8dQvrVPXsTrkvSZ");
 
 // =============================================================================
 // Constants
