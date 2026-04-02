@@ -6,24 +6,22 @@ import {
   type AuthenticatedMarketplaceUser,
 } from "@/lib/services/users";
 import type { Database } from "@/lib/supabase/database.types";
-import { extractWalletAddressFromSupabaseUser } from "@/lib/supabase/wallet-auth";
+import { resolveMarketplaceSession } from "@/lib/supabase/marketplace-session";
 
-export function toAuthenticatedMarketplaceUser(
+export async function toAuthenticatedMarketplaceUser(
+  supabase: Pick<SupabaseClient<Database>, "from">,
   user: Pick<User, "app_metadata" | "id" | "identities">,
-): AuthenticatedMarketplaceUser {
-  const walletAddress = extractWalletAddressFromSupabaseUser(user);
+): Promise<AuthenticatedMarketplaceUser> {
+  const authUser = await resolveMarketplaceSession(supabase, user);
 
-  if (!walletAddress) {
+  if (!authUser) {
     throw new ServiceError(
       401,
       "Sign in with your Solana wallet to continue.",
     );
   }
 
-  return {
-    authUserId: user.id,
-    walletAddress,
-  };
+  return authUser;
 }
 
 export async function requireAuthenticatedMarketplaceContext(
@@ -38,7 +36,7 @@ export async function requireAuthenticatedMarketplaceContext(
     throw new ServiceError(401, "Sign in with your Solana wallet to continue.");
   }
 
-  const authUser = toAuthenticatedMarketplaceUser(user);
+  const authUser = await toAuthenticatedMarketplaceUser(supabase, user);
 
   return {
     authUser,

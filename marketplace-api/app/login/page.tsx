@@ -5,9 +5,9 @@ import { redirect } from "next/navigation";
 import AuthForm from "@/components/auth/auth-form";
 import Header from "@/components/marketplace/header";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { resolveMarketplaceSession } from "@/lib/supabase/marketplace-session";
 import { getSafeRedirectPath } from "@/lib/supabase/redirects";
 import { createClient } from "@/lib/supabase/server";
-import { extractWalletAddressFromSupabaseUser } from "@/lib/supabase/wallet-auth";
 
 interface LoginPageProps {
   searchParams?: {
@@ -47,7 +47,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       data: { user },
     } = await supabase.auth.getUser();
 
-    if (user && extractWalletAddressFromSupabaseUser(user)) {
+    if (await resolveMarketplaceSession(supabase, user)) {
       redirect(nextPath);
     }
   }

@@ -33,17 +33,28 @@ export default function WalletSessionControl() {
   const connectedWalletAddress = publicKey?.toBase58() ?? null;
   const canSignInWithWallet = Boolean(connectedWalletAddress && (signIn || signMessage));
 
-  const refreshWalletSession = useCallback(async (nextSessionWalletAddress: string | null) => {
-    if (!nextSessionWalletAddress) {
+  const refreshWalletSession = useCallback(async ({
+    hasSupabaseSession,
+    walletAddressHint,
+  }: {
+    hasSupabaseSession: boolean;
+    walletAddressHint: string | null;
+  }) => {
+    if (!hasSupabaseSession) {
       setProfile(null);
+      setSessionWalletAddress(null);
       setIsResolvingSession(false);
       return;
     }
 
     try {
-      setProfile(await fetchCurrentWalletProfile());
+      const nextProfile = await fetchCurrentWalletProfile();
+
+      setProfile(nextProfile);
+      setSessionWalletAddress(nextProfile?.solanaWalletAddress ?? walletAddressHint);
     } catch (error) {
       console.error("Failed to load the Fortis wallet profile", error);
+      setSessionWalletAddress(walletAddressHint);
     } finally {
       setIsResolvingSession(false);
     }
@@ -63,7 +74,10 @@ export default function WalletSessionControl() {
 
       const nextSessionWalletAddress = extractWalletAddressFromSupabaseUser(user);
       setSessionWalletAddress(nextSessionWalletAddress);
-      await refreshWalletSession(nextSessionWalletAddress);
+      await refreshWalletSession({
+        hasSupabaseSession: Boolean(user),
+        walletAddressHint: nextSessionWalletAddress,
+      });
     }
 
     void loadInitialSession();
@@ -73,7 +87,10 @@ export default function WalletSessionControl() {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       const nextSessionWalletAddress = extractWalletAddressFromSupabaseUser(session?.user ?? null);
       setSessionWalletAddress(nextSessionWalletAddress);
-      void refreshWalletSession(nextSessionWalletAddress);
+      void refreshWalletSession({
+        hasSupabaseSession: Boolean(session?.user),
+        walletAddressHint: nextSessionWalletAddress,
+      });
     });
 
     return () => {
@@ -107,7 +124,10 @@ export default function WalletSessionControl() {
       });
 
       setSessionWalletAddress(result.walletAddress);
-      await refreshWalletSession(result.walletAddress);
+      await refreshWalletSession({
+        hasSupabaseSession: true,
+        walletAddressHint: result.walletAddress,
+      });
 
       if (result.kind === "switched-wallet") {
         toast.success("Сессия Fortis переключена на подключенный кошелек.");

@@ -1,5 +1,5 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
-import type { SolanaWallet } from "@supabase/auth-js";
+import { isAuthSessionMissingError, type SolanaWallet } from "@supabase/auth-js";
 
 import {
   extractWalletAddressFromSupabaseUser,
@@ -35,7 +35,7 @@ export async function signInWithConnectedWallet({
     error: existingUserError,
   } = await supabase.auth.getUser();
 
-  if (existingUserError) {
+  if (existingUserError && !isAuthSessionMissingError(existingUserError)) {
     throw existingUserError;
   }
 
