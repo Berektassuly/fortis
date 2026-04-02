@@ -1,266 +1,224 @@
 # Fortis
 
-Fortis is a Solana monorepo for compliant real-world asset tokenization and transfer orchestration. It pairs a Rust control plane with a Token-2022 transfer-hook program so wallet screening, approvals, and transfer execution stay auditable end to end.
+Fortis is a Solana monorepo for compliant real-world asset tokenization and transfer orchestration, combining a Rust control plane, a Token-2022 transfer-hook program, and a Next.js marketplace.
 
-**Problem statement:** Fortis solves the gap between regulated asset transfers and public token movement by making each transfer depend on wallet-level compliance approvals that are enforced on chain.
+**Problem statement:** Fortis solves the gap between regulated asset transfers and public token movement by making wallet-level compliance approvals part of the transfer path instead of an off-chain afterthought.
+
+## What Is Fortis?
+
+Fortis is split into two halves:
+
+- An off-chain control plane that accepts signed intents, persists workflow state, screens wallets, queues approvals, relays transfers, and reconciles blockchain status.
+- An on-chain enforcement layer that stores mint-level asset state plus per-wallet compliance PDAs and rejects Token-2022 transfers when the required approvals do not exist.
+
+In this repo, those responsibilities are spread across:
+
+- `backend/` for the Rust API, worker, crank, SQLx/Postgres state, compliance checks, and blockchain submission logic.
+- `contracts/` for the Anchor workspace and the `rwa_tokenizer` transfer-hook program.
+- `marketplace-api/` for the Next.js marketplace, wallet-first auth, listings, and order tracking.
+- `supabase/` plus `marketplace-api/supabase/` for local Supabase CLI configuration.
 
 ## Why Solana
 
-Other chains can represent tokenized assets, but Solana is the best fit for this workflow because Fortis needs product speed and protocol primitives at the same time:
+Other networks can represent tokenized assets, but Fortis is built around Solana because the product needs fast marketplace interactions and token-level compliance enforcement at the same time:
 
-- Fast confirmation makes marketplace flows feel interactive instead of batch-oriented.
-- Low fees make repeated token operations, wallet approvals, and compliance state updates practical.
-- Token-2022 and transfer hooks let Fortis enforce transfer policy at the token layer instead of relying only on off-chain coordination.
-- The chain is a good fit for a split architecture where off-chain services decide compliance and on-chain code enforces approved state at transfer time.
-- Fortis specifically benefits from being able to combine a high-throughput marketplace app with a control plane that may touch compliance state often without making every step expensive.
+- Fast confirmation keeps listing and purchase flows responsive instead of making the UI feel batch-driven.
+- Low transaction costs make repeated wallet approvals, compliance state changes, and token relays economically practical.
+- Token-2022 and transfer hooks let Fortis enforce policy where the transfer actually happens, not only in an API gateway.
+- Solana fits Fortis's split architecture well: off-chain services can do screening, retries, and orchestration, while on-chain code remains the final enforcement point.
+- The program model maps cleanly to mint-level asset records plus per-wallet compliance PDAs, which is the core control Fortis needs.
 
 ## Repository Layout
 
 | Path | Purpose |
 | --- | --- |
-| `backend/` | Rust backend service: Axum API, worker, stale-transaction crank, SQLx/Postgres, wallet screening, wallet approvals, transfer relay logic, and provider webhooks |
-| `contracts/` | Anchor workspace for the `rwa_tokenizer` Solana program, integration tests, and helper scripts |
-| `contracts/programs/rwa_tokenizer/` | Token-2022 transfer-hook program that stores asset and wallet compliance PDAs and enforces transfer policy |
-| `contracts/tests/` | Anchor integration tests for mint setup, approvals, transfer-hook enforcement, and revocation scenarios |
-| `contracts/scripts/` | Solana helper scripts such as mint initialization |
-| `marketplace-api/` | Next.js marketplace app with listing creation, wallet-first auth, order tracking, and Fortis backend integration |
-| `marketplace-api/supabase/` | Marketplace Supabase config and SQL migrations for listings, orders, profiles, and wallet-first SIWS auth |
-| `supabase/` | Repo-root Supabase CLI scaffold for local tooling at the monorepo root |
-| `.env.example` | Shared root environment template used by the backend |
-| `docker-compose.yml` | Local PostgreSQL and backend container setup |
+| `backend/` | Rust backend service with Axum routes, worker, stale-transaction crank, SQLx migrations, compliance screening, wallet approvals, and Token-2022 relay logic |
+| `backend/migrations/` | Backend state schema for `transfer_requests`, `wallet_approvals`, `wallet_risk_profiles`, and `blocklist` |
+| `contracts/` | Anchor workspace, tests, and scripts for Solana development |
+| `contracts/programs/rwa_tokenizer/` | Transfer-hook program that owns `AssetRecord` and `ComplianceRecord` PDAs |
+| `contracts/tests/` | Integration tests for mint setup, approval, transfer success, revocation, and blocked transfer paths |
+| `contracts/scripts/` | Helper scripts such as `initialize-mint.ts` for manual mint setup |
+| `marketplace-api/` | Next.js marketplace app with listing creation, SIWS-style wallet auth, order submission, and order refresh logic |
+| `marketplace-api/supabase/` | Marketplace Supabase config and migrations for users, listings, orders, storage, and wallet-first auth |
+| `supabase/` | Separate repo-root Supabase CLI scaffold for root-level local tooling |
+| `docs/` | Expanded architecture, workflow, and local development docs |
+| `.env.example` | Root backend environment template |
+| `docker-compose.yml` | Local PostgreSQL and backend container wiring |
 
-## System Architecture
+## Architecture At A Glance
 
-Fortis is split into an off-chain control plane and an on-chain enforcement layer.
-
-| Layer | Responsibility |
+| Layer | Main responsibility |
 | --- | --- |
-| `marketplace-api` | User-facing marketplace UI and API routes, listing creation, order creation, wallet-first auth, webhook bridge back into marketplace order state |
-| `Supabase` | Marketplace data model, auth/session handling, profile resolution, and storage-backed listing assets |
-| `backend` | Signed intent intake, nonce-based idempotency, screening, wallet approval queueing, blockchain submission, retries, webhook processing, and stale-transaction recovery |
-| `PostgreSQL` | Durable backend state for transfer requests, wallet approvals, retries, blocklist state, and cached compliance context |
-| `contracts/programs/rwa_tokenizer` | On-chain asset records, per-wallet compliance records, transfer-hook account resolution, and transfer-time enforcement |
+| `marketplace-api` | Listing UX, wallet session handling, listing creation, order creation, and order status refresh |
+| `marketplace-api/supabase` | Auth, user profile resolution, listings, orders, and storage-backed listing assets |
+| `backend` | Signed intent intake, idempotency, compliance screening, wallet approval queueing, blockchain submission, retries, webhook handling, and stale recovery |
+| `backend` PostgreSQL | Durable control-plane state for requests, approvals, cached risk data, and internal blocklist entries |
+| `contracts/programs/rwa_tokenizer` | On-chain asset metadata, per-wallet compliance records, transfer-hook resolution, and transfer-time enforcement |
 
-### Off-chain vs on-chain split
+Fortis deliberately keeps screening and orchestration off chain, while keeping the final transfer allow/deny decision on chain.
 
-- Off chain, Fortis decides whether a wallet should be allowed to receive a given token and manages the operational lifecycle needed to get that approval on chain.
-- On chain, the `rwa_tokenizer` program does not trust the client or the backend at transfer time. The Token-2022 transfer hook checks the required PDAs and rejects transfers if the sender or receiver is not approved.
+## How Fortis Works
 
-## Core Workflows
+### Listing tokenization
 
-### 1. Listing tokenization
+1. A seller creates a listing in the marketplace.
+2. The marketplace writes the listing to Supabase with a tokenization-in-progress status.
+3. The marketplace calls `POST /listings/tokenize` on the Rust backend.
+4. The backend creates a Token-2022 mint, attaches the Fortis transfer hook, initializes the asset record, approves the seller and delegate wallets, and mints the planned supply.
+5. The backend returns the mint address, compliance PDAs, and setup transaction signatures.
+6. The marketplace stores the mint on the listing and marks it active.
 
-1. A seller creates a listing through the Next.js marketplace.
-2. The marketplace writes the initial listing to Supabase with `tokenization_status = "tokenizing"`.
-3. The marketplace calls the backend `POST /listings/tokenize` endpoint.
-4. The backend creates the tokenization artifacts on Solana, including the Token-2022 mint setup and Fortis program state needed for enforcement.
-5. The backend returns the token mint and PDA metadata.
-6. The marketplace stores the mint address in Supabase and marks the listing active.
+### Transfer and compliance flow
 
-### 2. Transfer and compliance lifecycle
+1. A buyer signs a transfer intent that includes a nonce for replay protection.
+2. The marketplace verifies the signed intent, creates an order in Supabase, and submits a transfer request to the backend.
+3. The backend persists the request first, keyed by `(from_address, nonce)` for idempotency.
+4. The backend screens the destination wallet using the internal blocklist plus the configured compliance provider stack.
+5. If the wallet passes, the backend upserts a queued wallet approval for `(token_mint, wallet)`.
+6. The worker submits `approve_wallet` on the `rwa_tokenizer` program to create or refresh the wallet's compliance PDA.
+7. After the approval exists on chain, the backend relays the Token-2022 transfer.
+8. During the transfer, the Token-2022 hook resolves the sender and receiver compliance PDAs and rejects the move unless both sides are approved.
+9. Helius or QuickNode webhooks update backend status when possible, and the stale-transaction crank polls anything stuck in `submitted`.
+10. The marketplace keeps user-facing order state current by polling Fortis request status, and it also exposes a signed internal webhook route for push-based updates if an external sender is added later.
 
-1. A buyer signs a transfer intent for a public Token-2022 transfer.
-2. The marketplace verifies the signed intent, creates an order record, and forwards the request to `POST /transfer-requests`.
-3. The backend validates the signature, checks the `(from_address, nonce)` pair for idempotency, and persists the request before any external processing.
-4. The backend screens the relevant wallet using the internal blocklist and the configured compliance provider.
-5. If screening passes, the backend enqueues a wallet approval for the `(token_mint, wallet)` pair and marks the transfer ready for processing.
-6. The background worker submits `approve_wallet` on the `rwa_tokenizer` program, which creates or updates the wallet compliance PDA.
-7. After the approval exists on chain, the backend relays the public Token-2022 transfer.
-8. During transfer execution, the Token-2022 hook resolves the sender and receiver compliance PDAs and blocks the transfer unless both sides are approved.
-9. Confirmation is reconciled through provider webhooks and a stale-transaction crank that polls for transactions stuck in `submitted` state.
-10. The marketplace consumes Fortis status updates and keeps the user-facing order state in sync.
+```mermaid
+flowchart LR
+  subgraph UX["Marketplace and data layer"]
+    wallet["Seller / buyer wallet"]
+    market["marketplace-api (Next.js)"]
+    supa["Supabase auth + listings + orders"]
+  end
+
+  subgraph Control["Fortis control plane"]
+    backend["backend (Axum API + worker + crank)"]
+    pg["Backend PostgreSQL"]
+    risk["Blocklist + Range + Helius DAS"]
+  end
+
+  subgraph Chain["Solana"]
+    token["Token-2022 mint"]
+    program["rwa_tokenizer"]
+    pdas["AssetRecord + ComplianceRecord PDAs"]
+  end
+
+  wallet --> market
+  market --> supa
+  market -->|"tokenize listing"| backend
+  market -->|"submit transfer intent"| backend
+  backend -->|"persist requests + jobs"| pg
+  backend -->|"screen wallets"| risk
+  backend -->|"initialize mint / approve wallet"| program
+  backend -->|"relay transfer_checked"| token
+  token -->|"transfer hook callback"| program
+  program -->|"create / verify"| pdas
+  backend -->|"status polling + provider webhook reconciliation"| market
+  market --> supa
+```
 
 ## Quick Start
 
-Use this path if you want the repo running locally with the least amount of setup:
+Fortis is easiest to run locally as four separate pieces: backend database, Rust backend, marketplace app, and optional contract tooling.
 
-1. Install the local dependencies listed in [Environment and Dependencies](#environment-and-dependencies).
-2. Copy the root backend template and fill in at least `DATABASE_URL` and `ISSUER_PRIVATE_KEY`:
-
-```bash
-cp .env.example .env
-```
-
-3. Start the backend database from the repo root:
-
-```bash
-docker compose up -d db
-```
-
-4. Start the Rust backend:
-
-```bash
-cd backend
-cargo run
-```
-
-5. In a second terminal, start the marketplace app after configuring `marketplace-api/.env.local`:
-
-```bash
-cd marketplace-api
-npm install
-cp .env.example .env.local
-npm run dev
-```
-
-6. If you are working on the Solana program, build and test the Anchor workspace:
-
-```bash
-cd contracts
-npm install
-anchor build
-anchor test
-```
-
-The backend defaults to `http://localhost:3000`. If you run the Next.js app locally at the same time, change either the backend port in the root `.env` or the Next.js dev port so they do not collide.
-
-## Backend Development
-
-The backend is the Fortis control plane. It exposes transfer and tokenization endpoints, runs migrations automatically on startup, and starts both the worker and stale-transaction crank when enabled.
-
-### Start locally
-
-```bash
-cp .env.example .env
-docker compose up -d db
-cd backend
-cargo run
-```
-
-Useful commands:
-
-- `cargo check`
-- `cargo test`
-- `cargo run --bin generate_transfer_request -- --help`
-
-What to expect:
-
-- The backend loads the repo-root `.env` automatically even when started from `backend/`.
-- SQL migrations are applied from `backend/migrations/` at startup.
-- Swagger UI is available at `http://localhost:3000/swagger-ui`.
-- OpenAPI JSON is available at `http://localhost:3000/api-docs/openapi.json`.
-
-High-level backend environment expectations:
-
-- `DATABASE_URL` must point at a reachable Postgres instance.
-- `ISSUER_PRIVATE_KEY` is required and must be a valid Solana keypair secret.
-- `SOLANA_RPC_URL` defaults to devnet; point it at your local validator if you want the backend to work against locally deployed contracts.
-- `RANGE_API_KEY` is optional. Without it, the backend runs in mock compliance mode.
-- Webhook secrets for Helius and QuickNode are optional and only needed if you use those provider callbacks.
-
-## Smart Contract Development
-
-The Solana side lives under `contracts/`. The Anchor workspace contains one program, `rwa_tokenizer`, which enforces transfer compliance using Token-2022 transfer hooks and per-wallet compliance PDAs.
-
-### What the program owns
-
-- `AssetRecord` PDA for mint-level asset metadata
-- `ComplianceRecord` PDA for each `(mint, wallet)` approval
-- `initialize_extra_account_meta_list` setup for transfer-hook account resolution
-- `approve_wallet` and `revoke_wallet` compliance instructions
-- Transfer-hook enforcement for sender and receiver approvals
-
-### Start locally
-
-The workspace is configured in `contracts/Anchor.toml` for Anchor `0.32.1` and Solana `3.1.9`.
-
-```bash
-cd contracts
-npm install
-anchor build
-anchor test
-```
-
-Helpful files:
-
-- `contracts/programs/rwa_tokenizer/src/lib.rs`
-- `contracts/tests/rwa-tokenizer.ts`
-- `contracts/scripts/initialize-mint.ts`
-
-Notes:
-
-- `anchor test` exercises the full compliance flow, including approval, transfer success, revocation, and transfer failure after revocation.
-- If you want the backend to use your local deployment instead of devnet, update the root `.env` so `SOLANA_RPC_URL` matches the Anchor local validator.
-- On Windows, WSL2 is usually the most reliable way to work with the Solana SBF toolchain.
-
-## Marketplace Development
-
-`marketplace-api/` is a Next.js app that sits in front of Supabase and Fortis. It handles listing creation, wallet-first authentication, order creation, order polling, and the webhook bridge that updates marketplace order state from Fortis transfer results.
-
-### Start locally
-
-```bash
-cd marketplace-api
-npm install
-cp .env.example .env.local
-npm run dev
-```
-
-Useful commands:
-
-- `npm run dev`
-- `npm run build`
-- `npm run lint`
-- `npm test`
-
-High-level marketplace environment expectations:
-
-- `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are required for browser auth and data access.
-- `SUPABASE_SERVICE_ROLE_KEY` is required for privileged webhook and profile-repair flows.
-- `FORTIS_ENGINE_URL` must point at the Rust backend.
-- `FORTIS_WEBHOOK_SECRET` must match the secret used to sign Fortis webhook callbacks into the marketplace.
-- `NEXT_PUBLIC_SOLANA_RPC_URL` is optional and falls back to devnet if omitted.
-
-What the marketplace does today:
-
-- Creates listings and kicks off backend tokenization
-- Uses wallet-first SIWS auth patterns with Supabase
-- Creates orders from signed transfer intents
-- Tracks order state by polling Fortis and applying webhook updates
-
-## Environment and Dependencies
-
-Fortis spans multiple local toolchains. A practical setup includes:
+### 1. Install prerequisites
 
 - Rust stable and `cargo`
 - Docker and Docker Compose
 - Node.js and `npm`
-- Solana CLI / Agave SBF toolchain compatible with the Anchor workspace
+- Solana CLI / Agave toolchain
 - Anchor CLI `0.32.1`
-- Supabase CLI if you want to run the marketplace auth/data stack locally
-- A funded Solana keypair for `ISSUER_PRIVATE_KEY`
+- Optional: Supabase CLI if you want the marketplace auth/data stack locally
 
-A few local environment details matter:
+### 2. Start the backend
 
-- The backend uses the repo-root `.env` and the Postgres service defined in `docker-compose.yml`.
-- The marketplace keeps its own app env in `marketplace-api/.env.local`.
-- The backend database and the marketplace Supabase database are separate local systems by default.
-- The repo contains both `supabase/` at the root and `marketplace-api/supabase/`. For marketplace schema and auth work, use the config and migrations under `marketplace-api/supabase/`.
-- Do not run both Supabase configs on the same machine at the same time unless you have changed the ports, because both default to the same local Supabase ports.
+```bash
+cp .env.example .env
+docker compose up -d db
+cd backend
+cargo run
+```
 
-## Where New Contributors Should Look First
+Before you start the backend for real work:
 
-If you are new to the repo, start with the files that define the business flow instead of reading every directory:
+- Set `ISSUER_PRIVATE_KEY` in the repo-root `.env`.
+- Leave `SOLANA_RPC_URL` on devnet unless you are pointing the backend at a local validator.
+- If you also want Next.js on port `3000`, change backend `PORT` to something like `3002`.
 
-- `backend/src/api/router.rs` for the public backend surface area
-- `backend/src/app/service.rs` for the transfer lifecycle, screening, idempotency, and state transitions
-- `backend/src/app/worker.rs` for wallet approval processing and stale-transaction recovery
-- `backend/src/domain/types.rs` for request models, transfer types, and the Fortis program ID used by the backend
-- `contracts/programs/rwa_tokenizer/src/lib.rs` for the on-chain model and transfer-hook enforcement rules
-- `marketplace-api/lib/services/listings.ts` for listing creation and tokenization handoff
-- `marketplace-api/lib/services/orders.ts` for signed intent validation and Fortis transfer dispatch
-- `marketplace-api/supabase/migrations/` for the marketplace data model and wallet-first auth setup
+Useful backend URLs if you move the backend to `3002` as suggested:
 
-Two contribution tips save time quickly:
+- `http://localhost:3002/health/ready`
+- `http://localhost:3002/swagger-ui`
+- `http://localhost:3002/api-docs/openapi.json`
 
-- If you change transfer-intent signing or verification, keep `backend/src/bin/generate_transfer_request.rs` and `marketplace-api/lib/solana/transfer-intent.ts` aligned.
+### 3. Start the marketplace app
+
+```bash
+cd marketplace-api
+npm install
+cp .env.example .env.local
+npm run dev
+```
+
+At minimum, set these in `marketplace-api/.env.local`:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `FORTIS_ENGINE_URL` pointing at the Rust backend, for example `http://localhost:3002`
+
+### 4. Work on the Anchor contracts
+
+```bash
+cd contracts
+npm install
+anchor build
+anchor test
+```
+
+If you want the backend to use your local validator and local deployment instead of devnet, update the repo-root `.env` so `SOLANA_RPC_URL=http://127.0.0.1:8899` and make sure the issuer wallet has funds on that validator.
+
+### 5. Optional: run local Supabase for the marketplace
+
+Use the config inside `marketplace-api/`, not the repo-root scaffold:
+
+```bash
+cd marketplace-api
+supabase start
+supabase status
+```
+
+Copy the reported local URL and keys into `marketplace-api/.env.local`.
+
+## Docs Map
+
+The root README is the fast entrypoint. The deeper docs live under [`docs/`](./docs/):
+
+- [`docs/architecture.md`](./docs/architecture.md) - full system architecture, control boundaries, and on-chain enforcement model
+- [`docs/local-development.md`](./docs/local-development.md) - prerequisites, env files, startup commands, and local pitfalls
+- [`docs/workflows.md`](./docs/workflows.md) - listing tokenization, transfer orchestration, compliance approval, and reconciliation flows
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md) - review and contribution expectations
+
+## Codebase Entry Points
+
+If you are new to the repo, start with the files that define the core flow rather than reading every directory in order:
+
+- [`backend/src/api/router.rs`](./backend/src/api/router.rs) for the public backend surface area
+- [`backend/src/app/service.rs`](./backend/src/app/service.rs) for transfer intake, compliance gating, retries, and webhook reconciliation
+- [`backend/src/app/worker.rs`](./backend/src/app/worker.rs) for queued wallet approvals and stale-transaction recovery
+- [`backend/src/domain/types.rs`](./backend/src/domain/types.rs) for transfer intent, tokenization, and state model types
+- [`backend/src/infra/blockchain/solana.rs`](./backend/src/infra/blockchain/solana.rs) for tokenization, wallet approval submission, and transfer relay behavior
+- [`contracts/programs/rwa_tokenizer/src/lib.rs`](./contracts/programs/rwa_tokenizer/src/lib.rs) for the on-chain model and transfer-hook enforcement rules
+- [`contracts/tests/rwa-tokenizer.ts`](./contracts/tests/rwa-tokenizer.ts) for the clearest end-to-end example of the contract flow
+- [`marketplace-api/lib/services/listings.ts`](./marketplace-api/lib/services/listings.ts) for listing creation and backend tokenization handoff
+- [`marketplace-api/lib/services/orders.ts`](./marketplace-api/lib/services/orders.ts) for signed intent verification, order creation, and Fortis dispatch
+- [`marketplace-api/lib/services/order-updates.ts`](./marketplace-api/lib/services/order-updates.ts) for order-state mapping between backend statuses and marketplace statuses
+- [`marketplace-api/lib/solana/transfer-intent.ts`](./marketplace-api/lib/solana/transfer-intent.ts) plus [`backend/src/bin/generate_transfer_request.rs`](./backend/src/bin/generate_transfer_request.rs) whenever you change signing or message formats
+- [`marketplace-api/supabase/migrations/`](./marketplace-api/supabase/migrations/) for the marketplace data model and wallet-first auth setup
+
+## Notes For Contributors
+
+- The backend and the marketplace do not share a database. Backend operational state lives in PostgreSQL; user-facing marketplace state lives in Supabase.
+- The current marketplace purchase flow is buyer-initiated: the signed transfer intent proves the buyer wallet and nonce, and the marketplace currently passes the buyer wallet as both `from_address` and `to_address` while `source_owner_address` identifies the seller-held token account that Fortis will debit through the delegate flow.
+- The marketplace currently refreshes Fortis order state by polling `GET /api/orders/:id`. The signed internal Fortis webhook route exists, but backend-originated callbacks are not implemented in this repo today.
 - If you change transfer policy, review the backend, marketplace order flow, and `rwa_tokenizer` program together. Fortis is intentionally split across those layers.
-
-## Contribution Notes
-
-- See [CONTRIBUTING.md](./CONTRIBUTING.md) for workflow, testing, and review expectations.
-- The backend test suite lives under `backend/tests/`.
-- Smart contract integration tests live under `contracts/tests/`.
-- Marketplace tests live under `marketplace-api/tests/`.
 
 Fortis is licensed under [MIT](./LICENSE).
