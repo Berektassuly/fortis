@@ -147,9 +147,10 @@ export async function persistOrderStatusUpdate(
     updateQuery = updateQuery.in("status", [...NON_TERMINAL_ORDER_STATUSES]);
   }
 
-  const { data: updatedOrder, error: updateError } = await updateQuery
+  const { data: updatedOrderData, error: updateError } = await updateQuery
     .select(orderSelect)
     .maybeSingle();
+  const updatedOrder = updatedOrderData as OrderRecord | null;
 
   if (updateError) {
     throw new ServiceError(500, updateError.message);
@@ -159,11 +160,12 @@ export async function persistOrderStatusUpdate(
     return updatedOrder;
   }
 
-  const { data: currentOrder, error: currentOrderError } = await supabase
+  const { data: currentOrderData, error: currentOrderError } = await supabase
     .from("orders")
     .select(orderSelect)
     .eq("id", existingOrder.id)
     .maybeSingle();
+  const currentOrder = currentOrderData as OrderRecord | null;
 
   if (currentOrderError) {
     throw new ServiceError(500, currentOrderError.message);
@@ -190,7 +192,8 @@ export async function applyFortisWebhookUpdate(
     lookupQuery = lookupQuery.eq("id", data.orderId!);
   }
 
-  const { data: existingOrder, error: orderError } = await lookupQuery.maybeSingle();
+  const { data: existingOrderData, error: orderError } = await lookupQuery.maybeSingle();
+  const existingOrder = existingOrderData as OrderRecord | null;
 
   if (orderError) {
     throw new ServiceError(500, orderError.message);

@@ -951,6 +951,88 @@ impl RpcBlockchainClient {
         ))
     }
 
+    fn is_account_not_found_message(message: &str) -> bool {
+        message.contains("AccountNotFound")
+            || message.contains("could not find account")
+            || message.contains("not found")
+    }
+
+    async fn ensure_associated_token_account_exists(
+        &self,
+        owner: &Pubkey,
+        mint: &Pubkey,
+        token_program_id: &Pubkey,
+        purpose: &str,
+    ) -> Result<Pubkey, AppError> {
+        let (sdk_client, keypair) = self.require_sdk_and_keypair()?;
+        let associated_token_account =
+            get_associated_token_address_with_program_id(owner, mint, token_program_id);
+
+        match sdk_client.get_account(&associated_token_account).await {
+            Ok(account) => {
+                if account.owner != *token_program_id {
+                    return Err(AppError::Blockchain(BlockchainError::TransactionFailed(
+                        format!(
+                            "Associated token account {} for owner {} and mint {} is not owned by token program {}",
+                            associated_token_account, owner, mint, token_program_id
+                        ),
+                    )));
+                }
+
+                Ok(associated_token_account)
+            }
+            Err(error) => {
+                if !Self::is_account_not_found_message(&error.to_string()) {
+                    return Err(AppError::Blockchain(BlockchainError::TransactionFailed(
+                        format!(
+                            "Failed to fetch associated token account {} for owner {} and mint {}: {}",
+                            associated_token_account, owner, mint, error
+                        ),
+                    )));
+                }
+
+                info!(
+                    associated_token_account = %associated_token_account,
+                    owner = %owner,
+                    mint = %mint,
+                    purpose = %purpose,
+                    "Associated token account missing; creating it before continuing"
+                );
+
+                let priority_fee = self.get_priority_fee(None).await;
+                let mut instructions = vec![
+                    ComputeBudgetInstruction::set_compute_unit_price(priority_fee),
+                    create_associated_token_account_idempotent(
+                        &keypair.pubkey(),
+                        owner,
+                        mint,
+                        token_program_id,
+                    ),
+                ];
+
+                if let Some(tip_ix) = self.create_jito_tip_instruction(&keypair.pubkey()) {
+                    instructions.push(tip_ix);
+                }
+
+                let recent_blockhash = sdk_client
+                    .get_latest_blockhash()
+                    .await
+                    .map_err(map_solana_client_error)?;
+                let transaction = Transaction::new_signed_with_payer(
+                    &instructions,
+                    Some(&keypair.pubkey()),
+                    &[keypair],
+                    recent_blockhash,
+                );
+                let description = format!("create associated token account for {}", purpose);
+                self.submit_and_confirm_transaction(&transaction, &description)
+                    .await?;
+
+                Ok(associated_token_account)
+            }
+        }
+    }
+
     async fn transfer_token_internal(
         &self,
         to_address: &str,
@@ -1018,11 +1100,14 @@ impl RpcBlockchainClient {
             &mint_pubkey,
             &token_program_id,
         );
-        let destination_ata = get_associated_token_address_with_program_id(
-            &to_pubkey,
-            &mint_pubkey,
-            &token_program_id,
-        );
+        let destination_ata = self
+            .ensure_associated_token_account_exists(
+                &to_pubkey,
+                &mint_pubkey,
+                &token_program_id,
+                "destination transfer hook resolution",
+            )
+            .await?;
 
         let source_account = sdk_client.get_account(&source_ata).await.map_err(|e| {
             AppError::Blockchain(BlockchainError::TransactionFailed(format!(
@@ -1060,15 +1145,6 @@ impl RpcBlockchainClient {
                 priority_fee,
             )];
 
-        if sdk_client.get_account(&destination_ata).await.is_err() {
-            instructions.push(create_associated_token_account_idempotent(
-                &keypair.pubkey(),
-                &to_pubkey,
-                &mint_pubkey,
-                &token_program_id,
-            ));
-        }
-
         let mut transfer_ix = token2022_instruction::transfer_checked(
             &token_program_id,
             &source_ata,
@@ -1100,10 +1176,7 @@ impl RpcBlockchainClient {
                     Ok(account) => Ok(Some(account.data)),
                     Err(error) => {
                         let message = error.to_string();
-                        if message.contains("AccountNotFound")
-                            || message.contains("could not find account")
-                            || message.contains("not found")
-                        {
+                        if Self::is_account_not_found_message(&message) {
                             Ok(None)
                         } else {
                             Err(Box::new(error) as _)
