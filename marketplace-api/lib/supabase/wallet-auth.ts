@@ -1,7 +1,7 @@
 import type { User, UserIdentity } from "@supabase/supabase-js";
 import bs58 from "bs58";
 
-const SOLANA_IDENTITY_PROVIDERS = new Set(["solana", "eip4361"]);
+const SOLANA_IDENTITY_PROVIDERS = new Set(["solana", "eip4361", "web3"]);
 const SOLANA_PUBLIC_KEY_LENGTH = 32;
 
 export const FORTIS_SIWS_STATEMENT =
