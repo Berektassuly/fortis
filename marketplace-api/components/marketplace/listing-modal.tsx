@@ -1,7 +1,7 @@
 "use client";
 
 import bs58 from "bs58";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   BedDouble,
@@ -214,6 +214,12 @@ export default function ListingModal({ listing, onClose }: ListingModalProps) {
   const details = getAssetDetails(listing);
   const AssetIcon = getAssetIcon(listing.assetType);
 
+  const finalizeSuccessfulPurchase = useCallback(() => {
+    toast.success("Покупка завершена. Актив перенесен в ваш профиль.");
+    onClose();
+    router.push("/profile");
+  }, [onClose, router]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -246,8 +252,7 @@ export default function ListingModal({ listing, onClose }: ListingModalProps) {
           setOrder(nextOrder);
 
           if (nextOrder.status === "Success") {
-            toast.success("Покупка успешно завершена.");
-            router.refresh();
+            finalizeSuccessfulPurchase();
           } else if (nextOrder.status === "Failed") {
             toast.error(nextOrder.errorMessage ?? "Покупка актива Fortis завершилась ошибкой.");
           }
@@ -258,7 +263,7 @@ export default function ListingModal({ listing, onClose }: ListingModalProps) {
     }, 4000);
 
     return () => window.clearInterval(intervalId);
-  }, [order, router]);
+  }, [finalizeSuccessfulPurchase, order]);
 
   async function requireMatchingWalletSession(walletAddress: string) {
     const profile = await fetchCurrentWalletProfile();
@@ -337,6 +342,11 @@ export default function ListingModal({ listing, onClose }: ListingModalProps) {
 
       if (!nextOrder.bridgeDispatched) {
         toast.error(nextOrder.errorMessage ?? "Намерение о покупке не было принято.");
+        return;
+      }
+
+      if (nextOrder.status === "Success") {
+        finalizeSuccessfulPurchase();
         return;
       }
 

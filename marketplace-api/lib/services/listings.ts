@@ -11,6 +11,31 @@ import { createListingRequestSchema } from "@/lib/validators/listings";
 const LISTING_SELECT =
   "id,title,price_fiat,description,images,city,rooms,token_mint_address,tokenization_status";
 
+async function getSoldListingIds(
+  supabase: SupabaseClient<Database>,
+  listingIds: number[],
+) {
+  if (listingIds.length === 0) {
+    return new Set<number>();
+  }
+
+  const { data, error } = await supabase
+    .from("orders")
+    .select("listing_id")
+    .eq("status", "Success")
+    .in("listing_id", listingIds);
+
+  if (error) {
+    throw new ServiceError(500, error.message);
+  }
+
+  return new Set(
+    (data ?? [])
+      .map((order) => order.listing_id)
+      .filter((listingId): listingId is number => typeof listingId === "number"),
+  );
+}
+
 export async function getListings(supabase: SupabaseClient<Database>): Promise<ListingDto[]> {
   const { data, error } = await supabase
     .from("listings")
@@ -22,7 +47,15 @@ export async function getListings(supabase: SupabaseClient<Database>): Promise<L
     throw new ServiceError(500, error.message);
   }
 
-  return (data ?? []).map(toListingDto);
+  const listings = data ?? [];
+  const soldListingIds = await getSoldListingIds(
+    supabase,
+    listings.map((listing) => listing.id),
+  );
+
+  return listings
+    .filter((listing) => !soldListingIds.has(listing.id))
+    .map(toListingDto);
 }
 
 function requireWalletAddress(walletAddress: string) {
@@ -132,4 +165,50 @@ export async function createListing(
 
     throw new ServiceError(502, failureMessage);
   }
+}
+
+export async function getPurchasedListingsForUser(
+  supabase: SupabaseClient<Database>,
+  walletAddress: string,
+): Promise<ListingDto[]> {
+  const user = await requireMarketplaceUser(supabase, walletAddress);
+  const { data: successfulOrders, error: ordersError } = await supabase
+    .from("orders")
+    .select("listing_id,created_at")
+    .eq("status", "Success")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false });
+
+  if (ordersError) {
+    throw new ServiceError(500, ordersError.message);
+  }
+
+  const purchasedListingIds = Array.from(
+    new Set(
+      (successfulOrders ?? [])
+        .map((order) => order.listing_id)
+        .filter((listingId): listingId is number => typeof listingId === "number"),
+    ),
+  );
+
+  if (purchasedListingIds.length === 0) {
+    return [];
+  }
+
+  const { data: purchasedListings, error: listingsError } = await supabase
+    .from("listings")
+    .select(LISTING_SELECT)
+    .in("id", purchasedListingIds);
+
+  if (listingsError) {
+    throw new ServiceError(500, listingsError.message);
+  }
+
+  const listingsById = new Map(
+    (purchasedListings ?? []).map((listing) => [listing.id, toListingDto(listing)]),
+  );
+
+  return purchasedListingIds
+    .map((listingId) => listingsById.get(listingId))
+    .filter((listing): listing is ListingDto => Boolean(listing));
 }

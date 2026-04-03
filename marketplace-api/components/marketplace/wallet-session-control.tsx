@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, CircleUserRound, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -238,6 +239,13 @@ export default function WalletSessionControl() {
                 )}
               </button>
             ) : null}
+
+            <Link
+              href="/profile"
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-white/[0.08]"
+            >
+              Открыть профиль
+            </Link>
 
             <button
               type="button"

@@ -4,8 +4,9 @@ import { Landmark, LineChart, MapPin, Warehouse, Wheat } from "lucide-react";
 import type { MarketplaceAssetType, MarketplaceListing } from "@/types/listing";
 
 interface ListingCardProps {
+  actionLabel?: string;
   listing: MarketplaceListing;
-  onClick: () => void;
+  onClick?: () => void;
 }
 
 type AssetTheme = {
@@ -189,13 +190,22 @@ function getFallbackIcon(assetType: MarketplaceAssetType) {
   }
 }
 
-export default function ListingCard({ listing, onClick }: ListingCardProps) {
+export default function ListingCard({
+  actionLabel,
+  listing,
+  onClick,
+}: ListingCardProps) {
   const theme = ASSET_THEMES[listing.assetType];
   const metrics = getListingMetrics(listing);
   const previewImage = getPreviewImage(listing);
   const FallbackIcon = getFallbackIcon(listing.assetType);
+  const isInteractive = typeof onClick === "function";
 
   function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (!onClick) {
+      return;
+    }
+
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       onClick();
@@ -204,14 +214,14 @@ export default function ListingCard({ listing, onClick }: ListingCardProps) {
 
   return (
     <article
-      role="button"
-      tabIndex={0}
+      role={isInteractive ? "button" : undefined}
+      tabIndex={isInteractive ? 0 : undefined}
       onClick={onClick}
-      onKeyDown={handleKeyDown}
+      onKeyDown={isInteractive ? handleKeyDown : undefined}
       className={[
-        "group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-[1.9rem] border",
+        "group relative flex h-full flex-col overflow-hidden rounded-[1.9rem] border",
         "bg-[linear-gradient(180deg,rgba(14,18,31,0.9),rgba(8,11,20,0.94))] p-[10px] text-left backdrop-blur-[26px] transition-all duration-300",
-        "hover:-translate-y-1.5",
+        isInteractive ? "cursor-pointer hover:-translate-y-1.5" : "cursor-default",
         theme.cardClassName,
       ].join(" ")}
     >
@@ -275,9 +285,10 @@ export default function ListingCard({ listing, onClick }: ListingCardProps) {
           className={[
             "mt-4 flex min-h-11 w-full items-center justify-center rounded-[1rem] border bg-transparent px-4 text-[0.98rem] font-medium text-white transition-all duration-300",
             theme.buttonClassName,
+            isInteractive ? "" : "opacity-80",
           ].join(" ")}
         >
-          Купить
+          {actionLabel ?? "Купить"}
         </span>
       </div>
     </article>
