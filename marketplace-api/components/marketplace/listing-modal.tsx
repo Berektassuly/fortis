@@ -213,7 +213,7 @@ function getAssetDetails(listing: MarketplaceListing): AssetDetail[] {
           : "Не указано",
     },
     { icon: ShieldCheck, label: "Комплаенс", value: "Fortis Verified" },
-    { icon: Warehouse, label: "Сеть", value: "Solana / Token-2022" },
+    { icon: Warehouse, label: "Сеть", value: "Solana Devnet / Token-2022" },
   ];
 }
 

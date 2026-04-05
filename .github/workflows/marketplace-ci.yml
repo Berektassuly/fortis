@@ -1,0 +1,46 @@
+name: Marketplace API CI
+
+on:
+  push:
+    paths:
+      - ".github/workflows/marketplace-ci.yml"
+      - "marketplace-api/**"
+  pull_request:
+    paths:
+      - ".github/workflows/marketplace-ci.yml"
+      - "marketplace-api/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-api-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+    working-directory: marketplace-api
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: marketplace-api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run marketplace tests
+        run: npm test

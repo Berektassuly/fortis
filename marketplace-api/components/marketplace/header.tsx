@@ -60,7 +60,7 @@ export default function Header() {
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/50" />
                   <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_16px_rgba(74,222,128,0.95)]" />
                 </span>
-                <span>Solana Mainnet</span>
+                <span>Solana Devnet</span>
               </div>
 
               <WalletSessionControl />
