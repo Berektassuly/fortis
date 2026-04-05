@@ -17,9 +17,9 @@ import {
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useWallet } from "@solana/wallet-adapter-react";
 import { toast } from "sonner";
 
+import { useWallet } from "@/components/wallet/fortis-wallet-provider";
 import { fetchCurrentWalletProfile } from "@/lib/supabase/wallet-profile";
 import type { MarketplaceAssetType, MarketplaceListing } from "@/types/listing";
 

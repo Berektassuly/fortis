@@ -4,9 +4,9 @@ import { useEffect, useState, useTransition } from "react";
 import type { FormEvent } from "react";
 import { Building2, Loader2, Shield, Sparkles, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useWallet } from "@solana/wallet-adapter-react";
 import { toast } from "sonner";
 
+import { useWallet } from "@/components/wallet/fortis-wallet-provider";
 import { createClient } from "@/lib/supabase/client";
 import { getListingsBucket } from "@/lib/supabase/config";
 import { fetchCurrentWalletProfile } from "@/lib/supabase/wallet-profile";

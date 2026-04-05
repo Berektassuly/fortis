@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Manrope } from "next/font/google";
 
-import "@solana/wallet-adapter-react-ui/styles.css";
-
 import "@/app/globals.css";
 import { Providers } from "@/components/providers";
 

@@ -1,26 +1,21 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, CircleUserRound, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useWallet } from "@solana/wallet-adapter-react";
 import type { SolanaWallet } from "@supabase/auth-js";
 import { toast } from "sonner";
 
 import { createClient } from "@/lib/supabase/client";
 import { fetchCurrentWalletProfile, type WalletProfile } from "@/lib/supabase/wallet-profile";
 import { signInWithConnectedWallet } from "@/lib/supabase/web3-client";
+import { useWallet } from "@/components/wallet/fortis-wallet-provider";
+import WalletButton from "@/components/wallet/wallet-button";
 import {
   extractWalletAddressFromSupabaseUser,
   shortenWalletAddress,
 } from "@/lib/supabase/wallet-auth";
-
-const WalletMultiButton = dynamic(
-  async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
-  { ssr: false },
-);
 
 export default function WalletSessionControl() {
   const router = useRouter();
@@ -192,7 +187,7 @@ export default function WalletSessionControl() {
 
   return (
     <div className="flex items-center gap-3">
-      <WalletMultiButton className="!h-11 !rounded-full !px-4 !text-sm !font-semibold" />
+      <WalletButton className="!h-11 !rounded-full !px-4 !text-sm !font-semibold" />
 
       {sessionWalletAddress ? (
         <details className="group relative">

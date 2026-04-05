@@ -1,16 +1,16 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, ShieldCheck, Wallet } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useWallet } from "@solana/wallet-adapter-react";
 import type { SolanaWallet } from "@supabase/auth-js";
 import { toast } from "sonner";
 
 import { createClient } from "@/lib/supabase/client";
 import { signInWithConnectedWallet } from "@/lib/supabase/web3-client";
 import { shortenWalletAddress } from "@/lib/supabase/wallet-auth";
+import { useWallet } from "@/components/wallet/fortis-wallet-provider";
+import WalletButton from "@/components/wallet/wallet-button";
 
 interface AuthFormProps {
   disabledReason?: string;
@@ -18,11 +18,6 @@ interface AuthFormProps {
   initialMessage?: string;
   nextPath: string;
 }
-
-const WalletMultiButton = dynamic(
-  async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
-  { ssr: false },
-);
 
 function normalizeAuthMessage(message?: string) {
   if (!message) {
@@ -190,7 +185,7 @@ export default function AuthForm({
                 </p>
               </div>
 
-              <WalletMultiButton className="!h-11 !rounded-full !px-4 !text-sm !font-semibold" />
+              <WalletButton className="!h-11 !rounded-full !px-4 !text-sm !font-semibold" />
             </div>
 
             <div className="rounded-[1.4rem] border border-white/8 bg-white/5 px-4 py-4 text-sm leading-6 text-white/62">
