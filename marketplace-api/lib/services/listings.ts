@@ -9,7 +9,7 @@ import { normalizeWalletAddress } from "@/lib/supabase/wallet-auth";
 import { createListingRequestSchema } from "@/lib/validators/listings";
 
 const LISTING_SELECT =
-  "id,title,price_fiat,description,images,city,rooms,token_mint_address,tokenization_status";
+  "id,title,price_fiat,description,images,city,rooms,created_at,token_mint_address,tokenization_status";
 
 async function getSoldListingIds(
   supabase: SupabaseClient<Database>,

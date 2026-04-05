@@ -23,7 +23,6 @@ const assetTypeOptions: Array<{
   { label: "Акции", value: "equity" },
 ];
 
-const cities = ["Алматы", "Астана", "Шымкент", "Караганда", "Актау", "Павлодар"];
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 
 function getFileExtension(file: File) {
@@ -86,8 +85,8 @@ export default function CreateListingForm() {
   const [assetType, setAssetType] = useState<AssetType>("real_estate");
   const [title, setTitle] = useState("");
   const [price, setPrice] = useState("");
-  const [city, setCity] = useState(cities[0]);
-  const [rooms, setRooms] = useState("1");
+  const [city, setCity] = useState("");
+  const [rooms, setRooms] = useState("");
   const [description, setDescription] = useState("");
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -106,7 +105,6 @@ export default function CreateListingForm() {
     };
   }, [photoFile]);
 
-  const isRealEstate = assetType === "real_estate";
   const inputClass =
     "w-full rounded-2xl border border-white/10 bg-background/70 px-4 py-3.5 text-sm text-white outline-none transition-all placeholder:text-white/30 focus:border-neon-purple focus:ring-2 focus:ring-neon-purple/40";
 
@@ -155,6 +153,18 @@ export default function CreateListingForm() {
     try {
       setIsSubmitting(true);
 
+      const normalizedCity = city.trim();
+      const normalizedRooms = rooms.trim();
+      const parsedRooms = normalizedRooms ? Number(normalizedRooms) : undefined;
+
+      if (
+        normalizedRooms &&
+        (!Number.isInteger(parsedRooms) || !parsedRooms || parsedRooms < 1 || parsedRooms > 20)
+      ) {
+        toast.error("Укажите комнатность целым числом от 1 до 20.");
+        return;
+      }
+
       const walletAddress = publicKey.toBase58();
       const walletProfile = await requireMatchingWalletSession(walletAddress);
 
@@ -174,8 +184,8 @@ export default function CreateListingForm() {
         body: JSON.stringify({
           title: title.trim(),
           price: Number(price),
-          city: isRealEstate ? city : undefined,
-          rooms: isRealEstate ? Number(rooms) : undefined,
+          city: normalizedCity || undefined,
+          rooms: parsedRooms,
           photo,
           description: description.trim() || null,
           walletAddress,
@@ -302,10 +312,11 @@ export default function CreateListingForm() {
               </div>
               <div>
                 <h3 className="text-sm font-semibold text-white">
-                  Параметры недвижимости (Опционально)
+                  Параметры объекта
                 </h3>
                 <p className="mt-1 text-sm leading-6 text-white/55">
-                  Эти поля нужны только для real-estate активов. Для облигаций, товаров и акций их можно оставить без изменений.
+                  Здесь можно указать реальные город и комнатность. Эти значения попадут в
+                  карточку актива и в модальное окно.
                 </p>
               </div>
             </div>
@@ -315,38 +326,31 @@ export default function CreateListingForm() {
                 <label htmlFor="city" className="text-sm font-medium text-white/80">
                   Город
                 </label>
-                <select
+                <input
                   id="city"
+                  type="text"
                   value={city}
                   onChange={(event) => setCity(event.target.value)}
-                  disabled={!isRealEstate}
-                  className={`${inputClass} ${!isRealEstate ? "opacity-50" : ""}`}
-                >
-                  {cities.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Например, Алматы"
+                  maxLength={80}
+                  className={inputClass}
+                />
               </div>
 
               <div className="space-y-2">
                 <label htmlFor="rooms" className="text-sm font-medium text-white/80">
                   Комнатность
                 </label>
-                <select
+                <input
                   id="rooms"
+                  type="number"
+                  min="1"
+                  max="20"
                   value={rooms}
                   onChange={(event) => setRooms(event.target.value)}
-                  disabled={!isRealEstate}
-                  className={`${inputClass} ${!isRealEstate ? "opacity-50" : ""}`}
-                >
-                  {[1, 2, 3, 4, 5].map((item) => (
-                    <option key={item} value={item}>
-                      {item} комн.
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Например, 3"
+                  className={inputClass}
+                />
               </div>
             </div>
           </div>

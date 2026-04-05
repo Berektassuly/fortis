@@ -186,20 +186,33 @@ function getPreviewImage(listing: MarketplaceListing) {
   return listing.photo ?? getFallbackArtwork(listing.assetType);
 }
 
-function getAssetDetails(listing: MarketplaceListing): AssetDetail[] {
-  if (listing.assetType === "real_estate") {
-    return [
-      { icon: MapPin, label: "Локация", value: listing.city },
-      { icon: BedDouble, label: "Параметры", value: `${listing.rooms} комнат(ы)` },
-      { icon: ShieldCheck, label: "Комплаенс", value: "Fortis Verified" },
-      { icon: Warehouse, label: "Сеть", value: "Solana / Token-2022" },
-    ];
+function getRoomLabel(value: number) {
+  const remainder10 = value % 10;
+  const remainder100 = value % 100;
+
+  if (remainder10 === 1 && remainder100 !== 11) {
+    return "комната";
   }
 
+  if (remainder10 >= 2 && remainder10 <= 4 && (remainder100 < 12 || remainder100 > 14)) {
+    return "комнаты";
+  }
+
+  return "комнат";
+}
+
+function getAssetDetails(listing: MarketplaceListing): AssetDetail[] {
   return [
-    { icon: ShieldCheck, label: "Токенизировано", value: "100%" },
-    { icon: Lock, label: "Комплаенс", value: "Fortis Verified" },
-    { icon: getAssetIcon(listing.assetType), label: "Тип актива", value: ASSET_THEMES[listing.assetType].label },
+    { icon: MapPin, label: "Локация", value: listing.city ?? "Не указано" },
+    {
+      icon: BedDouble,
+      label: "Параметры",
+      value:
+        typeof listing.rooms === "number"
+          ? `${listing.rooms} ${getRoomLabel(listing.rooms)}`
+          : "Не указано",
+    },
+    { icon: ShieldCheck, label: "Комплаенс", value: "Fortis Verified" },
     { icon: Warehouse, label: "Сеть", value: "Solana / Token-2022" },
   ];
 }

@@ -1,7 +1,5 @@
 import type { ListingDto } from "@/lib/dto/listing";
 
-export const DEFAULT_LISTING_CITY = "Алматы";
-export const DEFAULT_LISTING_ROOMS = 2;
 export const MARKETPLACE_ASSET_TYPES = ["bond", "real_estate", "commodity", "equity"] as const;
 
 export type MarketplaceAssetType = (typeof MARKETPLACE_ASSET_TYPES)[number];
@@ -9,8 +7,8 @@ export type MarketplaceAssetFilter = MarketplaceAssetType | "all";
 
 export interface MarketplaceListing extends ListingDto {
   assetType: MarketplaceAssetType;
-  city: string;
-  rooms: number;
+  city: string | null;
+  rooms: number | null;
 }
 
 const ASSET_TYPE_KEYWORDS: Array<{
@@ -50,7 +48,7 @@ export function toMarketplaceListing(listing: ListingDto): MarketplaceListing {
   return {
     ...listing,
     assetType: inferMarketplaceAssetType(listing),
-    city: listing.city ?? DEFAULT_LISTING_CITY,
-    rooms: listing.rooms ?? DEFAULT_LISTING_ROOMS,
+    city: listing.city ?? null,
+    rooms: listing.rooms ?? null,
   };
 }

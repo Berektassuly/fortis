@@ -65,47 +65,27 @@ const ASSET_THEMES: Record<MarketplaceAssetType, AssetTheme> = {
   },
 };
 
-const LISTING_METRICS: Record<
-  MarketplaceAssetType,
-  ReadonlyArray<{
-    term: string;
-    tokenized: string;
-    yield: string;
-  }>
-> = {
-  bond: [
-    { term: "5 лет", tokenized: "50%", yield: "7.5% годовых" },
-    { term: "7 лет", tokenized: "64%", yield: "8.1% годовых" },
-    { term: "4 года", tokenized: "42%", yield: "6.9% годовых" },
-  ],
-  commodity: [
-    { term: "3 года", tokenized: "48%", yield: "6.8% годовых" },
-    { term: "5 лет", tokenized: "55%", yield: "7.2% годовых" },
-    { term: "2 года", tokenized: "38%", yield: "5.9% годовых" },
-  ],
-  equity: [
-    { term: "4 года", tokenized: "35%", yield: "12.3% годовых" },
-    { term: "6 лет", tokenized: "41%", yield: "10.8% годовых" },
-    { term: "3 года", tokenized: "29%", yield: "13.7% годовых" },
-  ],
-  real_estate: [
-    { term: "7 лет", tokenized: "62%", yield: "8.4% годовых" },
-    { term: "5 лет", tokenized: "57%", yield: "9.1% годовых" },
-    { term: "8 лет", tokenized: "68%", yield: "7.8% годовых" },
-  ],
-};
-
 function formatPrice(value: number) {
   return `${value.toLocaleString("ru-RU")} USDT`;
 }
 
-function getListingMetrics(listing: MarketplaceListing) {
-  const variations = LISTING_METRICS[listing.assetType];
-  return variations[(listing.id - 1) % variations.length] ?? variations[0];
+function formatCreatedAt(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Дата не указана";
+  }
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
 }
 
 function getLocationLabel(listing: MarketplaceListing) {
-  return listing.city || "Solana";
+  return listing.city ?? "Не указано";
 }
 
 function getFallbackArtwork(assetType: MarketplaceAssetType) {
@@ -196,7 +176,6 @@ export default function ListingCard({
   onClick,
 }: ListingCardProps) {
   const theme = ASSET_THEMES[listing.assetType];
-  const metrics = getListingMetrics(listing);
   const previewImage = getPreviewImage(listing);
   const FallbackIcon = getFallbackIcon(listing.assetType);
   const isInteractive = typeof onClick === "function";
@@ -271,14 +250,14 @@ export default function ListingCard({
           <span className="text-white/50">Цена</span>
           <span className="text-right font-medium text-white">{formatPrice(listing.price)}</span>
 
-          <span className="text-white/50">Доходность</span>
-          <span className="text-right font-medium text-white">{metrics.yield}</span>
-
-          <span className="text-white/50">Срок погашения</span>
-          <span className="text-right font-medium text-white">{metrics.term}</span>
-
           <span className="text-white/50">Токенизировано</span>
-          <span className="text-right font-medium text-white">{metrics.tokenized}</span>
+          <span className="text-right font-medium text-white">100%</span>
+
+          <span className="text-white/50">Создано</span>
+          <span className="text-right font-medium text-white">{formatCreatedAt(listing.createdAt)}</span>
+
+          <span className="text-white/50">Локация</span>
+          <span className="text-right font-medium text-white">{getLocationLabel(listing)}</span>
         </div>
 
         <span

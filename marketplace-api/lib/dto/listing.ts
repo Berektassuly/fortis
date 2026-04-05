@@ -10,6 +10,7 @@ export const listingDtoSchema = z.object({
   photo: z.string().nullable(),
   city: z.string().nullable(),
   rooms: z.number().int().positive().nullable(),
+  createdAt: z.string(),
   tokenMintAddress: z.string().nullable(),
   tokenizationStatus: z.string(),
 });
@@ -25,6 +26,7 @@ type ListingRecord = Pick<
   | "images"
   | "city"
   | "rooms"
+  | "created_at"
   | "token_mint_address"
   | "tokenization_status"
 >;
@@ -46,6 +48,7 @@ export function toListingDto(listing: ListingRecord): ListingDto {
     photo: Array.isArray(listing.images) ? listing.images[0] ?? null : null,
     city: listing.city ?? null,
     rooms: listing.rooms ?? null,
+    createdAt: listing.created_at,
     tokenMintAddress: listing.token_mint_address ?? null,
     tokenizationStatus: listing.tokenization_status ?? "draft",
   });
