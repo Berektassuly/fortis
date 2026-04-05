@@ -115,6 +115,9 @@ flowchart LR
   market --> supa
 ```
 
+![Architecture diagram](file:///c:/Users/berek/fortis/docs/image.png)
+
+
 ## Quick Start
 
 Fortis is easiest to run locally as four separate pieces: backend database, Rust backend, marketplace app, and optional contract tooling.
