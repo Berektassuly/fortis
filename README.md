@@ -115,7 +115,7 @@ flowchart LR
   market --> supa
 ```
 
-![Architecture diagram](file:///c:/Users/berek/fortis/docs/image.png)
+![Architecture diagram](./docs/image.png)
 
 
 ## Quick Start
